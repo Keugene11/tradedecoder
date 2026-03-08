@@ -55,6 +55,7 @@ export interface KalshiMarket {
   open_interest_fp: number;
   close_time: string;
   rules_primary: string;
+  category: string;
   // computed
   implied_probability?: number;
   expected_value?: number;
@@ -70,6 +71,25 @@ export interface KalshiEvent {
 }
 
 function parseMarket(raw: KalshiMarketRaw): KalshiMarket {
+  // Derive category from event ticker prefix
+  const et = raw.event_ticker || "";
+  let category = "Other";
+  if (et.includes("NBA")) category = "NBA Basketball";
+  else if (et.includes("NHL")) category = "NHL Hockey";
+  else if (et.includes("NFL")) category = "NFL Football";
+  else if (et.includes("MLB")) category = "MLB Baseball";
+  else if (et.includes("MLS")) category = "MLS Soccer";
+  else if (et.includes("UFC")) category = "UFC / MMA";
+  else if (et.includes("NCAAM") || et.includes("NCAAB")) category = "NCAA Men's Basketball";
+  else if (et.includes("NCAAW") || et.includes("NCAAWB")) category = "NCAA Women's Basketball";
+  else if (et.includes("NCAAF")) category = "NCAA Football";
+  else if (et.includes("SOC") || et.includes("SOCCER")) category = "Soccer";
+  else if (et.includes("KXWBC")) category = "World Baseball Classic";
+  else if (et.includes("KXECON") || et.includes("CPI") || et.includes("GDP") || et.includes("FED") || et.includes("FOMC")) category = "Economics";
+  else if (et.includes("KXPOL") || et.includes("TRUMP") || et.includes("BIDEN") || et.includes("CONGRESS")) category = "Politics";
+  else if (et.includes("KXWEATHER") || et.includes("TEMP") || et.includes("RAIN")) category = "Weather";
+  else if (et.includes("KXCRYPTO") || et.includes("BTC") || et.includes("ETH")) category = "Crypto";
+
   return {
     ticker: raw.ticker,
     event_ticker: raw.event_ticker,
@@ -87,6 +107,7 @@ function parseMarket(raw: KalshiMarketRaw): KalshiMarket {
     open_interest_fp: parseFloat(raw.open_interest_fp) || 0,
     close_time: raw.close_time,
     rules_primary: raw.rules_primary,
+    category,
   };
 }
 
@@ -105,7 +126,7 @@ export async function fetchMarkets(params?: {
   if (params?.event_ticker) searchParams.set("event_ticker", params.event_ticker);
 
   const res = await fetch(`${BASE_URL}/markets?${searchParams.toString()}`, {
-    next: { revalidate: 60 },
+    cache: "no-store",
   });
 
   if (!res.ok) {
@@ -123,7 +144,7 @@ export async function fetchAllOpenMarkets(): Promise<KalshiMarket[]> {
   const allMarkets: KalshiMarket[] = [];
   let cursor = "";
   let pages = 0;
-  const MAX_PAGES = 10;
+  const MAX_PAGES = 3; // 3000 markets is plenty, keeps serverless fast
 
   do {
     const searchParams = new URLSearchParams({
@@ -134,9 +155,12 @@ export async function fetchAllOpenMarkets(): Promise<KalshiMarket[]> {
     if (cursor) searchParams.set("cursor", cursor);
 
     const res = await fetch(`${BASE_URL}/markets?${searchParams.toString()}`, {
-      next: { revalidate: 60 },
+      cache: "no-store",
     });
-    if (!res.ok) throw new Error(`Kalshi API error: ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Kalshi API error: ${res.status} - ${body}`);
+    }
 
     const data = await res.json();
     const parsed = (data.markets || []).map(parseMarket);
@@ -151,7 +175,7 @@ export async function fetchAllOpenMarkets(): Promise<KalshiMarket[]> {
 export async function fetchEvent(eventTicker: string): Promise<KalshiEvent> {
   const res = await fetch(
     `${BASE_URL}/events/${eventTicker}?with_nested_markets=true`,
-    { next: { revalidate: 60 } }
+    { cache: "no-store" }
   );
   if (!res.ok) {
     throw new Error(`Kalshi API error: ${res.status}`);
@@ -162,7 +186,7 @@ export async function fetchEvent(eventTicker: string): Promise<KalshiEvent> {
 
 export async function fetchOrderbook(ticker: string) {
   const res = await fetch(`${BASE_URL}/markets/${ticker}/orderbook`, {
-    next: { revalidate: 30 },
+    cache: "no-store",
   });
   if (!res.ok) throw new Error(`Kalshi API error: ${res.status}`);
   return res.json();
@@ -200,24 +224,45 @@ export function scoreAndRankMarkets(markets: KalshiMarket[]): KalshiMarket[] {
   return markets
     .map(enrichMarket)
     .filter((m) => {
-      // Filter out markets with no meaningful data
+      const yesPrice = m.yes_ask_dollars || m.yes_bid_dollars || 0;
+      const noPrice = m.no_ask_dollars || m.no_bid_dollars || 0;
+      // Best price to buy either side
+      const cheaperSide = Math.min(yesPrice, noPrice || 1);
+
       return (
         m.yes_bid_dollars > 0 &&
         m.yes_ask_dollars > 0 &&
         m.volume_24h_fp > 0 &&
-        (m.status === "active" || m.status === "open")
+        (m.status === "active" || m.status === "open") &&
+        // KILL the 99c-for-1c bets: exclude markets where the cheaper side
+        // is below $0.10 (>90% implied probability either way).
+        // Sweet spot is $0.15 - $0.85 range on at least one side.
+        cheaperSide >= 0.10 &&
+        // Also exclude extreme locks where YES is above $0.90
+        yesPrice <= 0.90
       );
     })
     .sort((a, b) => {
-      // Composite score: high EV + high volume + low spread
-      const scoreA =
-        (a.expected_value || 0) * 0.4 +
-        (a.volume_score || 0) * 0.3 +
-        (1 - (a.spread || 0)) * 0.3;
-      const scoreB =
-        (b.expected_value || 0) * 0.4 +
-        (b.volume_score || 0) * 0.3 +
-        (1 - (b.spread || 0)) * 0.3;
+      // Prioritize interesting odds in the 20-80% range with good volume
+      const priceA = a.yes_ask_dollars || a.yes_bid_dollars || 0;
+      const priceB = b.yes_ask_dollars || b.yes_bid_dollars || 0;
+
+      // How close to 50/50 (more uncertain = more potential edge)
+      const uncertaintyA = 1 - Math.abs(priceA - 0.50) * 2; // 1.0 at 50c, 0.0 at 0c/100c
+      const uncertaintyB = 1 - Math.abs(priceB - 0.50) * 2;
+
+      // Volume score (normalized, capped at 500)
+      const volA = Math.min((a.volume_24h_fp || 0) / 500, 1);
+      const volB = Math.min((b.volume_24h_fp || 0) / 500, 1);
+
+      // Spread penalty (lower spread = better)
+      const spreadA = 1 - Math.min((a.spread || 0) / 0.10, 1);
+      const spreadB = 1 - Math.min((b.spread || 0) / 0.10, 1);
+
+      // Composite: uncertainty matters most (find mispriced bets),
+      // then volume (can actually trade it), then tight spread
+      const scoreA = uncertaintyA * 0.40 + volA * 0.35 + spreadA * 0.25;
+      const scoreB = uncertaintyB * 0.40 + volB * 0.35 + spreadB * 0.25;
       return scoreB - scoreA;
     });
 }
