@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { PaperTrade, PortfolioStats } from "@/types";
 import PnlChart from "./PnlChart";
+import TradeRow from "./TradeRow";
 import {
   Bot,
   TrendingUp,
@@ -13,13 +14,7 @@ import {
   Loader2,
   Trophy,
   AlertCircle,
-  ArrowUpRight,
-  ArrowDownRight,
   Clock,
-  ChevronDown,
-  ChevronUp,
-  Calendar,
-  Brain,
 } from "lucide-react";
 
 const ANON_USER_ID = "00000000-0000-0000-0000-000000000000";
@@ -64,7 +59,7 @@ export default function PaperTrading() {
         setMessage(`Error: ${data.error}`);
       } else if (data.trades_placed === 0) {
         setMessage(
-          `Analyzed ${data.analyses_count} markets — no trades met the STRONG_BUY criteria right now.`
+          `Analyzed ${data.analyses_count} markets — no trades met the criteria right now.`
         );
       } else {
         setMessage(
@@ -108,7 +103,6 @@ export default function PaperTrading() {
 
   return (
     <div className="space-y-6">
-      {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
           <StatCard
@@ -156,10 +150,8 @@ export default function PaperTrading() {
         </div>
       )}
 
-      {/* P&L Chart */}
       {trades.length > 0 && <PnlChart trades={trades} startingBalance={10000} />}
 
-      {/* Action Buttons */}
       <div className="flex items-center gap-3 flex-wrap">
         <button
           onClick={runAutoTrade}
@@ -199,7 +191,6 @@ export default function PaperTrading() {
         </button>
       </div>
 
-      {/* Message */}
       {message && (
         <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl p-3 text-sm">
           <AlertCircle size={16} />
@@ -207,7 +198,6 @@ export default function PaperTrading() {
         </div>
       )}
 
-      {/* Open Trades */}
       {openTrades.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
@@ -221,7 +211,6 @@ export default function PaperTrading() {
         </div>
       )}
 
-      {/* Settled Trades */}
       {settledTrades.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
@@ -278,203 +267,6 @@ function StatCard({
         {value}
       </p>
       <p className="text-gray-400 text-xs mt-0.5">{label}</p>
-    </div>
-  );
-}
-
-function formatTimeUntil(dateStr: string) {
-  const now = new Date();
-  const target = new Date(dateStr);
-  const diff = target.getTime() - now.getTime();
-
-  if (diff <= 0) return "Resolving soon";
-
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
-}
-
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-}
-
-function TradeRow({ trade }: { trade: PaperTrade }) {
-  const [expanded, setExpanded] = useState(false);
-  const isOpen = trade.status === "open";
-  const isWin = trade.status === "settled_win";
-
-  const potentialProfit = (1 - trade.entry_price) * trade.quantity;
-  const potentialReturnPct = ((1 - trade.entry_price) / trade.entry_price * 100).toFixed(0);
-
-  return (
-    <div
-      className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden cursor-pointer transition-all hover:border-gray-300"
-      onClick={() => setExpanded(!expanded)}
-    >
-      {/* Collapsed row */}
-      <div className="p-4 flex items-center gap-4">
-        <div
-          className={`w-2 h-2 rounded-full flex-shrink-0 ${
-            isOpen
-              ? "bg-blue-500 animate-pulse"
-              : isWin
-                ? "bg-emerald-500"
-                : "bg-red-500"
-          }`}
-        />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-sm text-gray-900 truncate">
-              {trade.title}
-            </span>
-            {trade.category && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 flex-shrink-0">
-                {trade.category}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
-            <span
-              className={`font-semibold ${
-                trade.position === "YES" ? "text-emerald-600" : "text-red-600"
-              }`}
-            >
-              {trade.position}
-            </span>
-            <span>
-              {trade.quantity}x @ ${trade.entry_price.toFixed(2)}
-            </span>
-            <span>Cost: ${trade.cost.toFixed(2)}</span>
-            {trade.confidence && (
-              <span className="text-blue-500">{trade.confidence}% conf</span>
-            )}
-            {isOpen && trade.close_time && (
-              <span className="text-amber-500 flex items-center gap-1">
-                <Clock size={10} />
-                {formatTimeUntil(trade.close_time)}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="text-right">
-            {isOpen ? (
-              <span className="text-xs font-medium text-blue-500 flex items-center gap-1">
-                <Clock size={12} /> Open
-              </span>
-            ) : (
-              <div className="flex items-center gap-1">
-                {isWin ? (
-                  <ArrowUpRight size={16} className="text-emerald-500" />
-                ) : (
-                  <ArrowDownRight size={16} className="text-red-500" />
-                )}
-                <span
-                  className={`font-bold text-sm ${
-                    (trade.pnl || 0) >= 0 ? "text-emerald-600" : "text-red-600"
-                  }`}
-                >
-                  {(trade.pnl || 0) >= 0 ? "+" : ""}$
-                  {(trade.pnl || 0).toFixed(2)}
-                </span>
-              </div>
-            )}
-          </div>
-          {expanded ? (
-            <ChevronUp size={16} className="text-gray-300" />
-          ) : (
-            <ChevronDown size={16} className="text-gray-300" />
-          )}
-        </div>
-      </div>
-
-      {/* Expanded details */}
-      {expanded && (
-        <div className="border-t border-gray-100 px-4 pb-4 pt-3 space-y-3">
-          {/* Trade details grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-gray-50 rounded-lg p-2.5">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider">Position</p>
-              <p className={`text-sm font-bold ${trade.position === "YES" ? "text-emerald-600" : "text-red-600"}`}>
-                {trade.position} x{trade.quantity}
-              </p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-2.5">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider">Entry Price</p>
-              <p className="text-sm font-bold text-gray-900">${trade.entry_price.toFixed(2)}</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-2.5">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider">Total Cost</p>
-              <p className="text-sm font-bold text-gray-900">${trade.cost.toFixed(2)}</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-2.5">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider">
-                {isOpen ? "Potential Profit" : "Result"}
-              </p>
-              {isOpen ? (
-                <p className="text-sm font-bold text-emerald-600">
-                  +${potentialProfit.toFixed(2)} ({potentialReturnPct}%)
-                </p>
-              ) : (
-                <p className={`text-sm font-bold ${(trade.pnl || 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                  {(trade.pnl || 0) >= 0 ? "+" : ""}${(trade.pnl || 0).toFixed(2)}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Resolution time */}
-          <div className="flex items-center gap-4 text-xs text-gray-500">
-            <div className="flex items-center gap-1.5">
-              <Calendar size={13} className="text-gray-400" />
-              <span>Placed: {formatDate(trade.created_at)}</span>
-            </div>
-            {trade.close_time && (
-              <div className="flex items-center gap-1.5">
-                <Clock size={13} className={isOpen ? "text-amber-500" : "text-gray-400"} />
-                <span className={isOpen ? "text-amber-600 font-medium" : ""}>
-                  Resolves: {formatDate(trade.close_time)}
-                  {isOpen && ` (${formatTimeUntil(trade.close_time)})`}
-                </span>
-              </div>
-            )}
-            {trade.settled_at && (
-              <div className="flex items-center gap-1.5">
-                <Target size={13} className="text-gray-400" />
-                <span>Settled: {formatDate(trade.settled_at)}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Ticker */}
-          <div className="text-xs font-mono text-gray-400">
-            {trade.ticker}
-          </div>
-
-          {/* AI Reasoning */}
-          {trade.ai_reasoning && (
-            <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <Brain size={13} className="text-indigo-500" />
-                <span className="text-xs font-semibold text-indigo-600">AI Reasoning</span>
-              </div>
-              <p className="text-sm text-indigo-900 leading-relaxed">
-                {trade.ai_reasoning}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
