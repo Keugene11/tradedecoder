@@ -43,6 +43,7 @@ export async function POST(request: Request) {
     const allMarkets = await fetchAllOpenMarkets();
     const ranked = scoreAndRankMarkets(allMarkets);
     const topMarkets = ranked.slice(0, 10);
+    const marketByTicker = new Map(allMarkets.map((m) => [m.ticker, m]));
 
     const analyses = await analyzeMarkets(topMarkets);
 
@@ -94,6 +95,7 @@ export async function POST(request: Request) {
           cost,
           confidence: bet.confidence,
           ai_reasoning: `${bet.recommendation} (${bet.confidence}% conf): ${bet.summary.slice(0, 500)}`,
+          close_time: marketByTicker.get(bet.ticker)?.close_time || null,
         })
         .select()
         .single();

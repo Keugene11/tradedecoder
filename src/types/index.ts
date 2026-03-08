@@ -63,6 +63,7 @@ export interface PaperTrade {
   pnl: number | null;
   confidence: number | null;
   ai_reasoning: string | null;
+  close_time: string | null;
   created_at: string;
   settled_at: string | null;
 }
