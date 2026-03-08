@@ -1,145 +1,138 @@
 import { NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { readStore, updateTrade, writeStore } from "@/lib/store";
 import { fetchMarkets } from "@/lib/kalshi";
 
 export const maxDuration = 30;
 
-// Settle open trades by checking current market prices
-export async function POST(request: Request) {
+export async function POST() {
   try {
-    const body = await request.json();
-    const { user_id } = body;
+    const store = await readStore();
+    const openTrades = store.trades.filter((t) => t.status === "open");
 
-    if (!user_id) {
-      return NextResponse.json({ error: "user_id required" }, { status: 400 });
+    if (openTrades.length === 0) {
+      return NextResponse.json({ settled: 0, actions: [] });
     }
 
-    const supabase = getServiceClient();
-
-    // Get open trades
-    const { data: openTrades } = await supabase
-      .from("paper_trades")
-      .select("*")
-      .eq("user_id", user_id)
-      .eq("status", "open");
-
-    if (!openTrades || openTrades.length === 0) {
-      return NextResponse.json({ settled: 0 });
-    }
-
-    // Fetch current market data
     const result = await fetchMarkets({ status: "open", limit: 1000 });
-    const marketMap = new Map(
-      result.markets.map((m) => [m.ticker, m])
-    );
+    const marketMap = new Map(result.markets.map((m) => [m.ticker, m]));
 
-    let settledCount = 0;
-    let totalPnlChange = 0;
+    let totalBalanceReturn = 0;
+    const actions: { ticker: string; action: string; pnl: number; reason: string }[] = [];
 
     for (const trade of openTrades) {
       const market = marketMap.get(trade.ticker);
 
-      // If market is no longer open, it has settled
       if (!market) {
-        // Market closed/settled - check if it resolved YES or NO
-        // For now, simulate: if the market is gone, it resolved
-        // We'll mark as expired and refund
-        const pnl = -trade.cost * 0.1; // Small loss for expired
-        await supabase
-          .from("paper_trades")
-          .update({
+        const expired = trade.close_time && new Date(trade.close_time) < new Date();
+        if (expired) {
+          const pnl = -trade.cost * 0.5;
+          await updateTrade(trade.id, {
             status: "expired",
             pnl,
             settled_at: new Date().toISOString(),
-          })
-          .eq("id", trade.id);
-
-        totalPnlChange += pnl;
-        settledCount++;
+          });
+          totalBalanceReturn += trade.cost * 0.5;
+          actions.push({
+            ticker: trade.ticker,
+            action: "EXPIRED",
+            pnl,
+            reason: "Market resolved, outcome unknown",
+          });
+        }
         continue;
       }
 
-      // Check if market price moved significantly - simulate settlement
-      const currentPrice =
-        trade.position === "YES"
-          ? market.yes_bid_dollars
-          : market.no_bid_dollars;
+      const currentBid =
+        trade.position === "YES" ? market.yes_bid_dollars : market.no_bid_dollars;
 
-      // If price hit $0.95+ (near certainty), settle as win
-      // If price hit $0.05 or less, settle as loss
-      if (currentPrice >= 0.95) {
-        const pnl = (1 - trade.entry_price) * trade.quantity;
-        await supabase
-          .from("paper_trades")
-          .update({
-            status: "settled_win",
-            settled_price: currentPrice,
-            pnl,
-            settled_at: new Date().toISOString(),
-          })
-          .eq("id", trade.id);
+      const sellValue = currentBid * trade.quantity;
+      const unrealizedPnl = sellValue - trade.cost;
+      const returnPct = (unrealizedPnl / trade.cost) * 100;
 
-        totalPnlChange += pnl;
-        settledCount++;
-      } else if (currentPrice <= 0.05) {
-        const pnl = -trade.cost;
-        await supabase
-          .from("paper_trades")
-          .update({
-            status: "settled_loss",
-            settled_price: currentPrice,
-            pnl,
-            settled_at: new Date().toISOString(),
-          })
-          .eq("id", trade.id);
+      if (currentBid >= 0.9) {
+        const pnl = sellValue - trade.cost;
+        await updateTrade(trade.id, {
+          status: "settled_win",
+          settled_price: currentBid,
+          pnl,
+          settled_at: new Date().toISOString(),
+        });
+        totalBalanceReturn += sellValue;
+        actions.push({
+          ticker: trade.ticker,
+          action: "SOLD_WIN",
+          pnl,
+          reason: `Price hit $${currentBid.toFixed(2)} — locked in ${returnPct.toFixed(0)}% profit`,
+        });
+        continue;
+      }
 
-        totalPnlChange += pnl;
-        settledCount++;
+      if (currentBid <= 0.1) {
+        const pnl = sellValue - trade.cost;
+        await updateTrade(trade.id, {
+          status: "settled_loss",
+          settled_price: currentBid,
+          pnl,
+          settled_at: new Date().toISOString(),
+        });
+        totalBalanceReturn += sellValue;
+        actions.push({
+          ticker: trade.ticker,
+          action: "SOLD_LOSS",
+          pnl,
+          reason: `Price dropped to $${currentBid.toFixed(2)} — cut losses`,
+        });
+        continue;
+      }
+
+      if (returnPct >= 30) {
+        const pnl = sellValue - trade.cost;
+        await updateTrade(trade.id, {
+          status: "settled_win",
+          settled_price: currentBid,
+          pnl,
+          settled_at: new Date().toISOString(),
+        });
+        totalBalanceReturn += sellValue;
+        actions.push({
+          ticker: trade.ticker,
+          action: "TAKE_PROFIT",
+          pnl,
+          reason: `Up ${returnPct.toFixed(0)}% — taking profit at $${currentBid.toFixed(2)}`,
+        });
+        continue;
+      }
+
+      if (returnPct <= -40) {
+        const pnl = sellValue - trade.cost;
+        await updateTrade(trade.id, {
+          status: "settled_loss",
+          settled_price: currentBid,
+          pnl,
+          settled_at: new Date().toISOString(),
+        });
+        totalBalanceReturn += sellValue;
+        actions.push({
+          ticker: trade.ticker,
+          action: "STOP_LOSS",
+          pnl,
+          reason: `Down ${returnPct.toFixed(0)}% — stopping loss at $${currentBid.toFixed(2)}`,
+        });
+        continue;
       }
     }
 
-    // Update balance with PnL
-    if (totalPnlChange !== 0) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("paper_balance")
-        .eq("id", user_id)
-        .single();
-
-      if (profile) {
-        // For wins: return cost + profit. For losses: already deducted
-        const balanceAdjust = openTrades
-          .filter((t) => {
-            const m = marketMap.get(t.ticker);
-            if (!m) return true;
-            const cp =
-              t.position === "YES"
-                ? m.yes_bid_dollars
-                : m.no_bid_dollars;
-            return cp >= 0.95 || cp <= 0.05;
-          })
-          .reduce((sum, t) => {
-            const m = marketMap.get(t.ticker);
-            if (!m) return sum + t.cost * 0.9; // Refund 90% for expired
-            const cp =
-              t.position === "YES"
-                ? m.yes_bid_dollars
-                : m.no_bid_dollars;
-            if (cp >= 0.95) return sum + t.quantity * 1; // $1 payout per contract
-            return sum; // Loss - already deducted
-          }, 0);
-
-        await supabase
-          .from("profiles")
-          .update({
-            paper_balance: profile.paper_balance + balanceAdjust,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", user_id);
-      }
+    if (totalBalanceReturn > 0) {
+      const updated = await readStore();
+      updated.balance += totalBalanceReturn;
+      await writeStore(updated);
     }
 
-    return NextResponse.json({ settled: settledCount, pnl_change: totalPnlChange });
+    return NextResponse.json({
+      settled: actions.length,
+      balance_returned: totalBalanceReturn,
+      actions,
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Settlement failed" },

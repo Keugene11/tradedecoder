@@ -15,9 +15,8 @@ import {
   Trophy,
   AlertCircle,
   Clock,
+  Trash2,
 } from "lucide-react";
-
-const ANON_USER_ID = "00000000-0000-0000-0000-000000000000";
 
 export default function PaperTrading() {
   const [trades, setTrades] = useState<PaperTrade[]>([]);
@@ -26,11 +25,12 @@ export default function PaperTrading() {
   const [autoTrading, setAutoTrading] = useState(false);
   const [settling, setSettling] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const fetchTrades = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/paper-trade?user_id=${ANON_USER_ID}`);
+      const res = await fetch(`/api/paper-trade`);
       const data = await res.json();
       setTrades(data.trades || []);
       setStats(data.stats || null);
@@ -52,7 +52,7 @@ export default function PaperTrading() {
       const res = await fetch("/api/paper-trade/auto", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: ANON_USER_ID }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (data.error) {
@@ -80,7 +80,7 @@ export default function PaperTrading() {
       const res = await fetch("/api/paper-trade/settle", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: ANON_USER_ID }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (data.settled > 0) {
@@ -95,6 +95,25 @@ export default function PaperTrading() {
       setMessage("Settlement failed");
     } finally {
       setSettling(false);
+    }
+  };
+
+  const resetAll = async () => {
+    if (!confirm("Delete all trades and reset balance to $10,000?")) return;
+    setResetting(true);
+    try {
+      const res = await fetch("/api/paper-trade/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      setMessage(`Deleted ${data.deleted} trades. Balance reset to $10,000.`);
+      fetchTrades();
+    } catch {
+      setMessage("Reset failed");
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -189,6 +208,20 @@ export default function PaperTrading() {
         >
           <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
         </button>
+        {trades.length > 0 && (
+          <button
+            onClick={resetAll}
+            disabled={resetting}
+            className="flex items-center gap-2 bg-white border border-red-200 hover:border-red-300 hover:bg-red-50 text-red-600 font-medium px-4 py-2.5 rounded-lg transition-all cursor-pointer disabled:opacity-50 text-sm ml-auto"
+          >
+            {resetting ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Trash2 size={16} />
+            )}
+            Reset All
+          </button>
+        )}
       </div>
 
       {message && (

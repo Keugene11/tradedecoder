@@ -232,7 +232,6 @@ export function scoreAndRankMarkets(markets: KalshiMarket[]): KalshiMarket[] {
       return (
         m.yes_bid_dollars > 0 &&
         m.yes_ask_dollars > 0 &&
-        m.volume_24h_fp > 0 &&
         (m.status === "active" || m.status === "open") &&
         // KILL the 99c-for-1c bets: exclude markets where the cheaper side
         // is below $0.10 (>90% implied probability either way).
@@ -243,12 +242,14 @@ export function scoreAndRankMarkets(markets: KalshiMarket[]): KalshiMarket[] {
       );
     })
     .sort((a, b) => {
+      const now = Date.now();
+
       // Prioritize interesting odds in the 20-80% range with good volume
       const priceA = a.yes_ask_dollars || a.yes_bid_dollars || 0;
       const priceB = b.yes_ask_dollars || b.yes_bid_dollars || 0;
 
       // How close to 50/50 (more uncertain = more potential edge)
-      const uncertaintyA = 1 - Math.abs(priceA - 0.50) * 2; // 1.0 at 50c, 0.0 at 0c/100c
+      const uncertaintyA = 1 - Math.abs(priceA - 0.50) * 2;
       const uncertaintyB = 1 - Math.abs(priceB - 0.50) * 2;
 
       // Volume score (normalized, capped at 500)
@@ -259,10 +260,17 @@ export function scoreAndRankMarkets(markets: KalshiMarket[]): KalshiMarket[] {
       const spreadA = 1 - Math.min((a.spread || 0) / 0.10, 1);
       const spreadB = 1 - Math.min((b.spread || 0) / 0.10, 1);
 
-      // Composite: uncertainty matters most (find mispriced bets),
-      // then volume (can actually trade it), then tight spread
-      const scoreA = uncertaintyA * 0.40 + volA * 0.35 + spreadA * 0.25;
-      const scoreB = uncertaintyB * 0.40 + volB * 0.35 + spreadB * 0.25;
+      // Time urgency — heavily favor markets closing within 48 hours
+      const hoursToCloseA = a.close_time ? (new Date(a.close_time).getTime() - now) / (1000 * 60 * 60) : 999;
+      const hoursToCloseB = b.close_time ? (new Date(b.close_time).getTime() - now) / (1000 * 60 * 60) : 999;
+
+      // Score: 1.0 for closing within 6h, 0.8 for 12h, 0.5 for 24h, 0.3 for 48h, 0.0 for 7d+
+      const urgencyA = hoursToCloseA <= 6 ? 1.0 : hoursToCloseA <= 12 ? 0.8 : hoursToCloseA <= 24 ? 0.6 : hoursToCloseA <= 48 ? 0.4 : hoursToCloseA <= 168 ? 0.15 : 0;
+      const urgencyB = hoursToCloseB <= 6 ? 1.0 : hoursToCloseB <= 12 ? 0.8 : hoursToCloseB <= 24 ? 0.6 : hoursToCloseB <= 48 ? 0.4 : hoursToCloseB <= 168 ? 0.15 : 0;
+
+      // Composite: time urgency is the biggest factor
+      const scoreA = urgencyA * 0.45 + uncertaintyA * 0.20 + volA * 0.20 + spreadA * 0.15;
+      const scoreB = urgencyB * 0.45 + uncertaintyB * 0.20 + volB * 0.20 + spreadB * 0.15;
       return scoreB - scoreA;
     });
 }

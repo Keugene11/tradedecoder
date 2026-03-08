@@ -1,51 +1,27 @@
 import { NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { readStore, addTrade } from "@/lib/store";
 import { analyzeMarkets } from "@/lib/dedalus";
 import { fetchAllOpenMarkets, scoreAndRankMarkets } from "@/lib/kalshi";
 
 export const maxDuration = 300;
 
-// AI auto-trades: analyzes markets and places bets on the most profitable ones
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { user_id, budget, batches: batchCount } = body;
+    const { budget, batches: batchCount } = body;
 
-    if (!user_id) {
-      return NextResponse.json({ error: "user_id required" }, { status: 400 });
-    }
+    const store = await readStore();
+    const maxBudget = budget || Math.min(store.balance * 0.3, 2000);
 
-    const supabase = getServiceClient();
+    const existingTickers = new Set(
+      store.trades.filter((t) => t.status === "open").map((t) => t.ticker)
+    );
 
-    // Check balance
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("paper_balance")
-      .eq("id", user_id)
-      .single();
-
-    if (!profile) {
-      return NextResponse.json({ error: "Profile not found" }, { status: 404 });
-    }
-
-    const maxBudget = budget || Math.min(profile.paper_balance * 0.3, 2000); // Max 30% of balance or $2000
-
-    // Check for existing open trades to avoid duplicates
-    const { data: existingTrades } = await supabase
-      .from("paper_trades")
-      .select("ticker")
-      .eq("user_id", user_id)
-      .eq("status", "open");
-
-    const existingTickers = new Set(existingTrades?.map((t) => t.ticker) ?? []);
-
-    // Fetch and analyze markets in multiple batches
     const allMarkets = await fetchAllOpenMarkets();
     const ranked = scoreAndRankMarkets(allMarkets);
     const marketByTicker = new Map(allMarkets.map((m) => [m.ticker, m]));
     const numBatches = Math.min(batchCount || 1, 5);
 
-    // Analyze multiple batches of 10 markets each
     const allAnalyses = [];
     for (let i = 0; i < numBatches; i++) {
       const batch = ranked.slice(i * 10, (i + 1) * 10);
@@ -54,7 +30,6 @@ export async function POST(request: Request) {
       allAnalyses.push(...analyses);
     }
 
-    // Bet on STRONG_BUY or BUY with decent confidence
     const bets = allAnalyses.filter(
       (a) =>
         (a.recommendation === "STRONG_BUY" || a.recommendation === "BUY") &&
@@ -70,14 +45,12 @@ export async function POST(request: Request) {
       });
     }
 
-    // Calculate position sizes using Kelly criterion (capped)
-    let remainingBudget = Math.min(maxBudget, profile.paper_balance);
+    let remainingBudget = Math.min(maxBudget, store.balance);
     const placedTrades = [];
 
     for (const bet of bets) {
       if (remainingBudget < 1) break;
 
-      // Use a fraction of Kelly for safety (quarter Kelly)
       const kellyFraction = (bet.math_breakdown?.kelly_fraction_pct || 5) / 100;
       const positionSize = Math.min(
         Math.max(Math.floor(remainingBudget * kellyFraction * 0.25), 1),
@@ -89,46 +62,42 @@ export async function POST(request: Request) {
       const cost = bet.entry_price * positionSize;
       if (cost > remainingBudget) continue;
 
-      const { data: trade, error } = await supabase
-        .from("paper_trades")
-        .insert({
-          user_id,
-          ticker: bet.ticker,
-          title: bet.title,
-          category: bet.category,
-          position: bet.target_position,
-          entry_price: bet.entry_price,
-          quantity: positionSize,
-          cost,
+      const trade = await addTrade({
+        user_id: "local",
+        ticker: bet.ticker,
+        title: bet.title,
+        category: bet.category,
+        position: bet.target_position,
+        entry_price: bet.entry_price,
+        quantity: positionSize,
+        cost,
+        confidence: bet.confidence,
+        ai_reasoning: JSON.stringify({
+          recommendation: bet.recommendation,
           confidence: bet.confidence,
-          ai_reasoning: `${bet.recommendation} (${bet.confidence}% conf): ${bet.summary.slice(0, 500)}`,
-          close_time: marketByTicker.get(bet.ticker)?.close_time || null,
-        })
-        .select()
-        .single();
+          event_description: bet.event_description,
+          the_bet: bet.the_bet,
+          how_you_profit: bet.how_you_profit,
+          summary: bet.summary,
+          math_breakdown: bet.math_breakdown,
+          pros: bet.pros,
+          cons: bet.cons,
+          risk_level: bet.risk_level,
+          potential_return_pct: bet.potential_return_pct,
+        }),
+        close_time: marketByTicker.get(bet.ticker)?.close_time || null,
+      });
 
-      if (!error && trade) {
-        placedTrades.push(trade);
-        remainingBudget -= cost;
-      }
+      placedTrades.push(trade);
+      remainingBudget -= cost;
     }
 
-    // Deduct total cost from balance
     const totalCost = placedTrades.reduce((sum, t) => sum + t.cost, 0);
-    if (totalCost > 0) {
-      await supabase
-        .from("profiles")
-        .update({
-          paper_balance: profile.paper_balance - totalCost,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", user_id);
-    }
 
     return NextResponse.json({
       trades_placed: placedTrades.length,
       total_cost: totalCost,
-      remaining_balance: profile.paper_balance - totalCost,
+      remaining_balance: store.balance - totalCost,
       trades: placedTrades,
       analyses_count: allAnalyses.length,
     });

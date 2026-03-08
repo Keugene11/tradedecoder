@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { analyzeMarkets } from "@/lib/dedalus";
-import { getServiceClient } from "@/lib/supabase";
 import type { KalshiMarket } from "@/lib/kalshi";
 
 export const maxDuration = 60;
@@ -29,30 +28,6 @@ export async function POST(request: Request) {
     }
 
     const analyses = await analyzeMarkets(topMarkets);
-
-    // Store in Supabase (fire-and-forget, don't block response)
-    const supabase = getServiceClient();
-    Promise.all(
-      analyses.map((analysis) =>
-        supabase.from("trade_analyses").upsert(
-          {
-            ticker: analysis.ticker,
-            title: analysis.title,
-            recommendation: analysis.recommendation,
-            confidence: analysis.confidence,
-            summary: analysis.summary,
-            pros: analysis.pros,
-            cons: analysis.cons,
-            risk_level: analysis.risk_level,
-            target_position: analysis.target_position,
-            entry_price: analysis.entry_price,
-            potential_return_pct: analysis.potential_return_pct,
-            analyzed_at: new Date().toISOString(),
-          },
-          { onConflict: "ticker" }
-        )
-      )
-    ).catch((err) => console.error("Supabase upsert error:", err));
 
     return NextResponse.json({ analyses });
   } catch (error) {

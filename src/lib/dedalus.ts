@@ -25,7 +25,7 @@ async function chatCompletion(messages: DedalusMessage[]): Promise<string> {
     body: JSON.stringify({
       model: "gpt-4o",
       messages,
-      max_tokens: 4096,
+      max_tokens: 16384,
       temperature: 0.3,
     }),
   });
@@ -113,7 +113,7 @@ You MUST respond with valid JSON only. No markdown, no code blocks, just raw JSO
 
   const userPrompt = `Analyze these Kalshi prediction markets and find the BEST bets to place right now. Only return trades you would actually recommend placing money on — either STRONG_BUY or BUY. Do NOT include any HOLD or AVOID recommendations.
 
-For each bet, provide a thorough, detailed analysis explaining exactly why this is a money-making opportunity. Be specific — reference relevant stats, historical patterns, current events, and logical reasoning. The summary should be 5-8 sentences minimum. Each pro and con should be 2-3 sentences with specific reasoning, not generic one-liners.
+For each bet, provide an EXTREMELY thorough and detailed analysis. This is the most important part — users read these analyses to understand why a trade is worth making. Each analysis must be at minimum 200 words, ideally 300+. Pack it with specific numbers, statistics, win/loss records, historical data, percentages, season averages, head-to-head matchups, recent form, and concrete reasoning. Do NOT be vague or generic — every claim must be backed by a specific data point or logical argument.
 
 Markets data:
 ${JSON.stringify(marketSummaries, null, 2)}
@@ -128,7 +128,7 @@ Respond with a JSON array of analyses. Each object must have exactly these field
   "event_description": "string - 2-3 sentences explaining WHAT this event is. Who is playing? What game/event is it? When does it happen? Give full context so someone unfamiliar knows exactly what this is about.",
   "the_bet": "string - 1-2 sentences in plain English explaining exactly what you're betting on. e.g. 'You are betting that the Boston Celtics will beat the Cleveland Cavaliers tonight.' or 'You are betting that Seth Jarvis will score at least 1 goal in tonight's Hurricanes vs Flames game.'",
   "how_you_profit": "string - 2-3 sentences explaining exactly how you make money. e.g. 'You buy YES at $0.85. If the Celtics win, you get $1.00 back — a profit of $0.15 per contract (17.6% return). If they lose, you lose your $0.85.'",
-  "summary": "string - detailed 5-8 sentence analysis. MUST include specific numbers: win/loss records, historical stats, percentages, season averages, head-to-head records, or relevant data points. Explain WHY the market probability is wrong using math, not vibes.",
+  "summary": "string - THIS IS THE MAIN ANALYSIS. Write a minimum of 200 words (ideally 300+). Structure it as a mini-essay: (1) Set the scene — what's happening and why it matters. (2) Present 3-5 specific statistical arguments with real numbers — win/loss records, shooting percentages, scoring averages, historical trends, head-to-head records, home/away splits, recent form over last 5-10 games, injuries, rest days, etc. (3) Explain exactly why the market price is wrong — what is the market missing or overweighting? (4) Conclude with your conviction level and the risk/reward setup. Be specific and data-driven throughout. NO generic filler sentences.",
   "math_breakdown": {
     "implied_prob_pct": "number - the market's implied probability from the price (entry_price * 100)",
     "estimated_true_prob_pct": "number - YOUR estimate of the actual probability this bet wins, based on stats and analysis",
@@ -141,15 +141,15 @@ Respond with a JSON array of analyses. Each object must have exactly these field
     "break_even_prob_pct": "number - the minimum win probability needed to break even (= cost * 100)",
     "kelly_fraction_pct": "number - Kelly Criterion optimal bet size as % of bankroll: (edge / odds). If edge is 10% and odds are 1:1, kelly = 10%."
   },
-  "pros": ["array of 4+ strings - each MUST cite a specific stat, record, percentage, or historical data point. e.g. 'Miami is 28-14 at home this season and Detroit is 8-24 on the road — a 20-game gap in relevant records that the 46c price doesn't reflect.'"],
-  "cons": ["array of 3+ strings - each MUST cite a specific risk with numbers. e.g. 'Detroit has covered this spread in 3 of their last 5 road games, suggesting they perform better as underdogs than their overall record indicates.'"],
+  "pros": ["array of 5+ strings - each MUST be 2-4 sentences citing specific stats, records, percentages, or historical data. e.g. 'Miami is 28-14 at home this season with a +7.2 point differential, while Detroit is 8-24 on the road with a -9.1 differential. That 16.3-point swing in home/away performance creates a massive edge that the current 46-cent price dramatically undervalues.'"],
+  "cons": ["array of 4+ strings - each MUST be 2-4 sentences citing specific risks with numbers. e.g. 'Detroit has covered this spread in 3 of their last 5 road games, and Cade Cunningham is averaging 28.4 PPG over that stretch. They also beat Miami 108-102 in their last meeting on Feb 12, showing they can compete in this matchup.'"],
   "risk_level": "LOW" | "MEDIUM" | "HIGH",
   "target_position": "YES" | "NO",
   "entry_price": number (dollar price to enter),
   "potential_return_pct": number (expected return percentage)
 }
 
-Return exactly 5 of the best bets, sorted by conviction level. Every single one should be a trade worth making. Keep each analysis detailed but concise to fit within token limits.`;
+Return exactly 5 of the best bets, sorted by conviction level. Every single one should be a trade worth making. DO NOT cut corners on analysis length — each trade's summary MUST be 200+ words with specific statistics and numbers. The user is reading these to make decisions, so quality and depth matter more than brevity.`;
 
   const response = await chatCompletion([
     { role: "system", content: systemPrompt },
