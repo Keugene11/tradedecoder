@@ -107,7 +107,7 @@ export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
   );
   const maxVal = Math.max(startingBalance, portfolioValue);
   const totalPnl = portfolioValue - startingBalance;
-  const pnlColor = totalPnl >= 0 ? "#00D632" : "#FF5A4F";
+  const pnlColor = totalPnl >= 0 ? "#00B836" : "#F45343";
 
   return (
     <div className="bg-surface border border-border rounded-xl p-5">
@@ -151,12 +151,12 @@ export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
               <stop offset="95%" stopColor={pnlColor} stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" />
+          <CartesianGrid strokeDasharray="3 3" stroke="#E5E5E5" />
           <XAxis
             dataKey="name"
-            tick={{ fontSize: 10, fill: "#555555" }}
+            tick={{ fontSize: 10, fill: "#999999" }}
             tickLine={false}
-            axisLine={{ stroke: "#2A2A2A" }}
+            axisLine={{ stroke: "#E5E5E5" }}
             interval="preserveStartEnd"
           />
           <YAxis
@@ -164,19 +164,20 @@ export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
               Math.floor(minVal * 0.98),
               Math.ceil(maxVal * 1.01),
             ]}
-            tick={{ fontSize: 10, fill: "#555555" }}
+            tick={{ fontSize: 10, fill: "#999999" }}
             tickLine={false}
-            axisLine={{ stroke: "#2A2A2A" }}
+            axisLine={{ stroke: "#E5E5E5" }}
             tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`}
             width={55}
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: "#1C1C1C",
-              border: "1px solid #2A2A2A",
+              backgroundColor: "#FFFFFF",
+              border: "1px solid #E5E5E5",
               borderRadius: "8px",
               fontSize: "12px",
-              color: "#FAFAFA",
+              color: "#1A1A1A",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
             }}
             formatter={(value, name) => {
               const v = Number(value);

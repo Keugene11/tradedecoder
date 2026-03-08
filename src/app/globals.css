@@ -2,21 +2,21 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0A0A0A;
-  --foreground: #FAFAFA;
-  --surface: #141414;
-  --surface-raised: #1C1C1C;
-  --border: #2A2A2A;
-  --border-hover: #3A3A3A;
-  --text-primary: #FAFAFA;
-  --text-secondary: #888888;
-  --text-tertiary: #555555;
-  --accent: #00D632;
-  --accent-hover: #00B829;
-  --gain: #00D632;
-  --loss: #FF5A4F;
-  --warning: #FFB800;
-  --info: #6C7AE0;
+  --background: #FFFFFF;
+  --foreground: #1A1A1A;
+  --surface: #F8F8F8;
+  --surface-raised: #F0F0F0;
+  --border: #E5E5E5;
+  --border-hover: #D0D0D0;
+  --text-primary: #1A1A1A;
+  --text-secondary: #666666;
+  --text-tertiary: #999999;
+  --accent: #00B836;
+  --accent-hover: #009E2E;
+  --gain: #00B836;
+  --loss: #F45343;
+  --warning: #F0A000;
+  --info: #5B6AD0;
 }
 
 @theme inline {
@@ -47,7 +47,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar for dark theme */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
