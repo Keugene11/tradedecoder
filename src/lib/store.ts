@@ -1,10 +1,17 @@
 import { Redis } from "@upstash/redis";
 import type { PaperTrade } from "@/types";
 
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
+let _redis: Redis | null = null;
+
+function getRedis(): Redis {
+  if (!_redis) {
+    _redis = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    });
+  }
+  return _redis;
+}
 
 const BALANCE_KEY = "paper:balance";
 const TRADES_KEY = "paper:trades";
@@ -15,6 +22,7 @@ interface StoreData {
 }
 
 export async function readStore(): Promise<StoreData> {
+  const redis = getRedis();
   const [balance, trades] = await Promise.all([
     redis.get<number>(BALANCE_KEY),
     redis.lrange<PaperTrade>(TRADES_KEY, 0, -1),
@@ -27,6 +35,7 @@ export async function readStore(): Promise<StoreData> {
 }
 
 export async function writeStore(data: StoreData) {
+  const redis = getRedis();
   const pipeline = redis.pipeline();
   pipeline.set(BALANCE_KEY, data.balance);
   pipeline.del(TRADES_KEY);
@@ -51,6 +60,7 @@ export async function addTrade(
     created_at: new Date().toISOString(),
   };
 
+  const redis = getRedis();
   const balance = (await redis.get<number>(BALANCE_KEY)) ?? 10000;
   const pipeline = redis.pipeline();
   pipeline.set(BALANCE_KEY, balance - trade.cost);
@@ -61,6 +71,7 @@ export async function addTrade(
 }
 
 export async function updateTrade(id: string, updates: Partial<PaperTrade>) {
+  const redis = getRedis();
   const trades = (await redis.lrange<PaperTrade>(TRADES_KEY, 0, -1)) ?? [];
   const idx = trades.findIndex((t) => t.id === id);
   if (idx === -1) return null;
@@ -74,11 +85,11 @@ export async function updateTrade(id: string, updates: Partial<PaperTrade>) {
     pipeline.rpush(TRADES_KEY, t);
   }
   await pipeline.exec();
-
   return updated;
 }
 
 export async function resetStore(): Promise<number> {
+  const redis = getRedis();
   const trades = (await redis.lrange<PaperTrade>(TRADES_KEY, 0, -1)) ?? [];
   const count = trades.length;
   const pipeline = redis.pipeline();
