@@ -17,102 +17,165 @@ interface PnlChartProps {
 }
 
 export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
-  // Build cumulative P&L data points from trades sorted by time
+  // Group trades by time bucket to avoid 42 nearly-identical points
   const allTrades = [...trades].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    (a, b) =>
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
 
-  const dataPoints: { time: string; balance: number; pnl: number }[] = [
-    {
-      time: "Start",
-      balance: startingBalance,
-      pnl: 0,
-    },
-  ];
-
-  let runningBalance = startingBalance;
-  let runningPnl = 0;
+  // Build data: start -> each trade batch -> current state
+  // Group trades that happened within 5 minutes of each other
+  const buckets: { label: string; trades: PaperTrade[] }[] = [];
+  let currentBucket: PaperTrade[] = [];
+  let bucketStart = 0;
 
   for (const trade of allTrades) {
-    const date = new Date(trade.created_at);
-    const timeLabel = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, "0")}`;
-
-    // Deduct cost when trade is placed
-    runningBalance -= trade.cost;
-    dataPoints.push({
-      time: timeLabel,
-      balance: parseFloat(runningBalance.toFixed(2)),
-      pnl: parseFloat(runningPnl.toFixed(2)),
-    });
-
-    // If settled, add the result
-    if (trade.status !== "open" && trade.pnl !== null) {
-      runningPnl += trade.pnl;
-      // Win: get back $1 per contract. Loss: already deducted
-      if (trade.status === "settled_win") {
-        runningBalance += trade.quantity * 1;
-      } else if (trade.status === "expired") {
-        runningBalance += trade.cost * 0.9;
-      }
-
-      dataPoints.push({
-        time: timeLabel + " (settled)",
-        balance: parseFloat(runningBalance.toFixed(2)),
-        pnl: parseFloat(runningPnl.toFixed(2)),
+    const t = new Date(trade.created_at).getTime();
+    if (currentBucket.length === 0) {
+      bucketStart = t;
+      currentBucket.push(trade);
+    } else if (t - bucketStart < 5 * 60 * 1000) {
+      currentBucket.push(trade);
+    } else {
+      const d = new Date(bucketStart);
+      buckets.push({
+        label: formatTime(d),
+        trades: [...currentBucket],
       });
+      currentBucket = [trade];
+      bucketStart = t;
     }
   }
+  if (currentBucket.length > 0) {
+    buckets.push({
+      label: formatTime(new Date(bucketStart)),
+      trades: [...currentBucket],
+    });
+  }
 
-  const minBalance = Math.min(...dataPoints.map((d) => d.balance));
-  const maxBalance = Math.max(...dataPoints.map((d) => d.balance));
-  const currentPnl = runningPnl;
-  const pnlColor = currentPnl >= 0 ? "#10b981" : "#ef4444";
+  // Build cumulative data points
+  const dataPoints: {
+    name: string;
+    balance: number;
+    invested: number;
+    trades: number;
+  }[] = [];
+
+  dataPoints.push({
+    name: "Start",
+    balance: startingBalance,
+    invested: 0,
+    trades: 0,
+  });
+
+  let runningBalance = startingBalance;
+  let totalInvested = 0;
+  let totalTrades = 0;
+
+  for (const bucket of buckets) {
+    let bucketCost = 0;
+    let bucketPnl = 0;
+    let bucketReturns = 0;
+
+    for (const trade of bucket.trades) {
+      bucketCost += trade.cost;
+      totalTrades++;
+
+      if (trade.status !== "open" && trade.pnl !== null) {
+        bucketPnl += trade.pnl;
+        if (trade.status === "settled_win") {
+          bucketReturns += trade.quantity * 1;
+        } else if (trade.status === "expired") {
+          bucketReturns += trade.cost * 0.9;
+        }
+      }
+    }
+
+    totalInvested += bucketCost;
+    runningBalance = runningBalance - bucketCost + bucketReturns;
+
+    dataPoints.push({
+      name: `${bucket.label} (${bucket.trades.length})`,
+      balance: parseFloat(runningBalance.toFixed(2)),
+      invested: parseFloat(totalInvested.toFixed(2)),
+      trades: totalTrades,
+    });
+  }
+
+  // Add "Now" point showing current portfolio value (balance + value of open positions)
+  const openValue = allTrades
+    .filter((t) => t.status === "open")
+    .reduce((sum, t) => sum + t.cost, 0);
+  const portfolioValue = runningBalance + openValue;
+
+  const minVal = Math.min(
+    ...dataPoints.map((d) => d.balance),
+    portfolioValue
+  );
+  const maxVal = Math.max(startingBalance, portfolioValue);
+  const totalPnl = portfolioValue - startingBalance;
+  const pnlColor = totalPnl >= 0 ? "#10b981" : "#6366f1";
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-sm font-semibold text-gray-700">
-            Portfolio Value
+            Portfolio Overview
           </h3>
           <p className="text-2xl font-bold text-gray-900">
-            ${runningBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+            $
+            {portfolioValue.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+            })}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            ${runningBalance.toFixed(2)} cash + ${openValue.toFixed(2)} in open
+            bets
           </p>
         </div>
         <div className="text-right">
-          <p className="text-xs text-gray-400">Total P&L</p>
-          <p
-            className="text-lg font-bold"
-            style={{ color: pnlColor }}
-          >
-            {currentPnl >= 0 ? "+" : ""}${currentPnl.toFixed(2)}
-          </p>
+          <div className="flex items-center gap-4">
+            <div>
+              <p className="text-xs text-gray-400">Invested</p>
+              <p className="text-sm font-bold text-indigo-600">
+                ${totalInvested.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">Trades</p>
+              <p className="text-sm font-bold text-gray-700">{totalTrades}</p>
+            </div>
+          </div>
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={250}>
+
+      <ResponsiveContainer width="100%" height={220}>
         <AreaChart data={dataPoints}>
           <defs>
-            <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={pnlColor} stopOpacity={0.2} />
+            <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={pnlColor} stopOpacity={0.15} />
               <stop offset="95%" stopColor={pnlColor} stopOpacity={0} />
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
           <XAxis
-            dataKey="time"
-            tick={{ fontSize: 11, fill: "#9ca3af" }}
+            dataKey="name"
+            tick={{ fontSize: 10, fill: "#9ca3af" }}
             tickLine={false}
             axisLine={{ stroke: "#e5e7eb" }}
+            interval="preserveStartEnd"
           />
           <YAxis
             domain={[
-              Math.floor(minBalance * 0.99),
-              Math.ceil(maxBalance * 1.01),
+              Math.floor(minVal * 0.98),
+              Math.ceil(maxVal * 1.01),
             ]}
-            tick={{ fontSize: 11, fill: "#9ca3af" }}
+            tick={{ fontSize: 10, fill: "#9ca3af" }}
             tickLine={false}
             axisLine={{ stroke: "#e5e7eb" }}
-            tickFormatter={(v) => `$${v.toLocaleString()}`}
+            tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`}
+            width={55}
           />
           <Tooltip
             contentStyle={{
@@ -120,21 +183,44 @@ export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
               border: "1px solid #e5e7eb",
               borderRadius: "8px",
               fontSize: "12px",
+              boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.05)",
             }}
-            formatter={(value, name) => [
-              `$${Number(value).toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
-              name === "balance" ? "Balance" : "P&L",
-            ]}
+            formatter={(value, name) => {
+              const v = Number(value);
+              const label =
+                name === "balance"
+                  ? "Cash Balance"
+                  : name === "invested"
+                    ? "Total Invested"
+                    : "Trades";
+              return name === "trades"
+                ? [v, label]
+                : [
+                    `$${v.toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+                    label,
+                  ];
+            }}
           />
           <Area
             type="monotone"
             dataKey="balance"
             stroke={pnlColor}
             strokeWidth={2}
-            fill="url(#balanceGradient)"
+            fill="url(#balGrad)"
+            name="balance"
           />
         </AreaChart>
       </ResponsiveContainer>
     </div>
   );
+}
+
+function formatTime(d: Date) {
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
