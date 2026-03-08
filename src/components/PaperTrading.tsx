@@ -52,7 +52,7 @@ export default function PaperTrading() {
       const res = await fetch("/api/paper-trade/auto", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ batches: 3 }),
       });
       const data = await res.json();
       if (data.error) {

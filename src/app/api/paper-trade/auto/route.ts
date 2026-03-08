@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const { budget, batches: batchCount } = body;
 
     const store = await readStore();
-    const maxBudget = budget || Math.min(store.balance * 0.3, 2000);
+    const maxBudget = budget || Math.min(store.balance * 0.5, 5000);
 
     const existingTickers = new Set(
       store.trades.filter((t) => t.status === "open").map((t) => t.ticker)
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     const allMarkets = await fetchAllOpenMarkets();
     const ranked = scoreAndRankMarkets(allMarkets);
     const marketByTicker = new Map(allMarkets.map((m) => [m.ticker, m]));
-    const numBatches = Math.min(batchCount || 1, 5);
+    const numBatches = Math.min(batchCount || 3, 5);
 
     const allAnalyses = [];
     for (let i = 0; i < numBatches; i++) {
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
 
       const kellyFraction = (bet.math_breakdown?.kelly_fraction_pct || 5) / 100;
       const positionSize = Math.min(
-        Math.max(Math.floor(remainingBudget * kellyFraction * 0.25), 1),
+        Math.max(Math.floor(remainingBudget * kellyFraction * 0.5), 2),
         Math.floor(remainingBudget / bet.entry_price)
       );
 
