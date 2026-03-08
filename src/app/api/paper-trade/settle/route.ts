@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { readStore, updateTrade, writeStore } from "@/lib/store";
-import { fetchMarkets } from "@/lib/kalshi";
+import { fetchMarkets, fetchMarketByTicker } from "@/lib/kalshi";
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export async function POST() {
   try {
@@ -13,18 +13,63 @@ export async function POST() {
       return NextResponse.json({ settled: 0, actions: [] });
     }
 
+    // Fetch all open markets to check prices on still-active trades
     const result = await fetchMarkets({ status: "open", limit: 1000 });
-    const marketMap = new Map(result.markets.map((m) => [m.ticker, m]));
+    const openMarketMap = new Map(result.markets.map((m) => [m.ticker, m]));
 
     let totalBalanceReturn = 0;
     const actions: { ticker: string; action: string; pnl: number; reason: string }[] = [];
 
     for (const trade of openTrades) {
-      const market = marketMap.get(trade.ticker);
+      const openMarket = openMarketMap.get(trade.ticker);
 
-      if (!market) {
-        const expired = trade.close_time && new Date(trade.close_time) < new Date();
-        if (expired) {
+      // Market is NOT in the open list — it may have resolved
+      if (!openMarket) {
+        // Fetch the specific market to check its result
+        const resolved = await fetchMarketByTicker(trade.ticker);
+
+        if (resolved && resolved.result) {
+          // Market has a result — "yes" or "no"
+          const won =
+            (trade.position === "YES" && resolved.result === "yes") ||
+            (trade.position === "NO" && resolved.result === "no");
+
+          if (won) {
+            // Win: each contract pays $1
+            const payout = 1.0 * trade.quantity;
+            const pnl = payout - trade.cost;
+            await updateTrade(trade.id, {
+              status: "settled_win",
+              settled_price: 1.0,
+              pnl,
+              settled_at: new Date().toISOString(),
+            });
+            totalBalanceReturn += payout;
+            actions.push({
+              ticker: trade.ticker,
+              action: "RESOLVED_WIN",
+              pnl,
+              reason: `Market resolved ${resolved.result.toUpperCase()} — won $${payout.toFixed(2)} (+$${pnl.toFixed(2)} profit)`,
+            });
+          } else {
+            // Loss: contracts worth $0
+            const pnl = -trade.cost;
+            await updateTrade(trade.id, {
+              status: "settled_loss",
+              settled_price: 0,
+              pnl,
+              settled_at: new Date().toISOString(),
+            });
+            // No balance return — contracts are worthless
+            actions.push({
+              ticker: trade.ticker,
+              action: "RESOLVED_LOSS",
+              pnl,
+              reason: `Market resolved ${resolved.result.toUpperCase()} — lost $${trade.cost.toFixed(2)}`,
+            });
+          }
+        } else if (trade.close_time && new Date(trade.close_time) < new Date()) {
+          // Market not found and past close time — treat as expired
           const pnl = -trade.cost * 0.5;
           await updateTrade(trade.id, {
             status: "expired",
@@ -36,14 +81,15 @@ export async function POST() {
             ticker: trade.ticker,
             action: "EXPIRED",
             pnl,
-            reason: "Market resolved, outcome unknown",
+            reason: "Market no longer available — refunded 50%",
           });
         }
         continue;
       }
 
+      // Market is still open — check current price for early exit
       const currentBid =
-        trade.position === "YES" ? market.yes_bid_dollars : market.no_bid_dollars;
+        trade.position === "YES" ? openMarket.yes_bid_dollars : openMarket.no_bid_dollars;
 
       const sellValue = currentBid * trade.quantity;
       const unrealizedPnl = sellValue - trade.cost;

@@ -172,6 +172,19 @@ export async function fetchAllOpenMarkets(): Promise<KalshiMarket[]> {
   return allMarkets;
 }
 
+export async function fetchMarketByTicker(ticker: string): Promise<KalshiMarket | null> {
+  try {
+    const res = await fetch(`${BASE_URL}/markets/${ticker}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return parseMarket(data.market);
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchEvent(eventTicker: string): Promise<KalshiEvent> {
   const res = await fetch(
     `${BASE_URL}/events/${eventTicker}?with_nested_markets=true`,
