@@ -3,13 +3,13 @@ import { getServiceClient } from "@/lib/supabase";
 import { analyzeMarkets } from "@/lib/dedalus";
 import { fetchAllOpenMarkets, scoreAndRankMarkets } from "@/lib/kalshi";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 // AI auto-trades: analyzes markets and places bets on the most profitable ones
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { user_id, budget } = body;
+    const { user_id, budget, batches: batchCount } = body;
 
     if (!user_id) {
       return NextResponse.json({ error: "user_id required" }, { status: 400 });
@@ -39,19 +39,26 @@ export async function POST(request: Request) {
 
     const existingTickers = new Set(existingTrades?.map((t) => t.ticker) ?? []);
 
-    // Fetch and analyze markets
+    // Fetch and analyze markets in multiple batches
     const allMarkets = await fetchAllOpenMarkets();
     const ranked = scoreAndRankMarkets(allMarkets);
-    const topMarkets = ranked.slice(0, 10);
     const marketByTicker = new Map(allMarkets.map((m) => [m.ticker, m]));
+    const numBatches = Math.min(batchCount || 1, 5);
 
-    const analyses = await analyzeMarkets(topMarkets);
+    // Analyze multiple batches of 10 markets each
+    const allAnalyses = [];
+    for (let i = 0; i < numBatches; i++) {
+      const batch = ranked.slice(i * 10, (i + 1) * 10);
+      if (batch.length === 0) break;
+      const analyses = await analyzeMarkets(batch);
+      allAnalyses.push(...analyses);
+    }
 
     // Bet on STRONG_BUY or BUY with decent confidence
-    const bets = analyses.filter(
+    const bets = allAnalyses.filter(
       (a) =>
         (a.recommendation === "STRONG_BUY" || a.recommendation === "BUY") &&
-        a.confidence >= 60 &&
+        a.confidence >= 55 &&
         !existingTickers.has(a.ticker)
     );
 
@@ -59,7 +66,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         message: "No trades meet criteria",
         trades_placed: 0,
-        analyses_count: analyses.length,
+        analyses_count: allAnalyses.length,
       });
     }
 
@@ -123,7 +130,7 @@ export async function POST(request: Request) {
       total_cost: totalCost,
       remaining_balance: profile.paper_balance - totalCost,
       trades: placedTrades,
-      analyses_count: analyses.length,
+      analyses_count: allAnalyses.length,
     });
   } catch (error) {
     console.error("Auto-trade failed:", error);
