@@ -75,6 +75,7 @@ function parseMarket(raw: KalshiMarketRaw): KalshiMarket {
   const et = raw.event_ticker || "";
   const title = (raw.title || "").toLowerCase();
   let category = "Other";
+  // Sports
   if (et.includes("NBA")) category = "NBA Basketball";
   else if (et.includes("NHL")) category = "NHL Hockey";
   else if (et.includes("NFL")) category = "NFL Football";
@@ -84,13 +85,27 @@ function parseMarket(raw: KalshiMarketRaw): KalshiMarket {
   else if (et.includes("NCAAM") || et.includes("NCAAB")) category = "NCAA Men's Basketball";
   else if (et.includes("NCAAW") || et.includes("NCAAWB")) category = "NCAA Women's Basketball";
   else if (et.includes("NCAAF")) category = "NCAA Football";
-  else if (et.includes("SOC") || et.includes("SOCCER")) category = "Soccer";
+  else if (et.includes("NCAAHOCEKY") || et.includes("NCAAHOCKEY")) category = "NCAA Hockey";
+  else if (et.includes("NCAAMLAX")) category = "NCAA Lacrosse";
+  else if (et.includes("KXATP") || et.includes("KXWTA")) category = "Tennis";
+  else if (et.includes("KXFIBA") || et.includes("KXJBLEAGUE") || et.includes("KXARGLNB") || et.includes("KXNBL") || et.includes("KXVTB")) category = "International Basketball";
+  else if (et.includes("KXBRASILEIRO") || et.includes("KXDIMAYO") || et.includes("KXARGPREM") || et.includes("KXEGYPL") || et.includes("KXAFCCL") || et.includes("KXUSL") || et.includes("SOC") || et.includes("SOCCER")) category = "Soccer";
+  else if (et.includes("KXKHL")) category = "International Hockey";
   else if (et.includes("KXWBC")) category = "World Baseball Classic";
-  else if (et.includes("KXECON") || et.includes("CPI") || et.includes("GDP") || et.includes("FED") || et.includes("FOMC")) category = "Economics";
-  else if (et.includes("KXPOL") || et.includes("TRUMP") || et.includes("BIDEN") || et.includes("CONGRESS")) category = "Politics";
-  else if (et.includes("KXHIGHT") || et.includes("KXLOWT") || et.includes("KXWEATHER") || et.includes("KXRAIN") || et.includes("KXSNOW") || title.includes("temperature") || title.includes("high temp") || title.includes("rainfall")) category = "Weather";
-  else if (et.includes("KXBTC") || et.includes("KXETH") || et.includes("KXCRYPTO") || et.includes("KXSOL") || title.includes("bitcoin") || title.includes("ethereum")) category = "Crypto";
-  else if (et.includes("KXMVECROSS")) category = "Cross-Category";
+  // Esports
+  else if (et.includes("KXLOL") || et.includes("KXVALORANT") || et.includes("KXCS2")) category = "Esports";
+  // Weather
+  else if (et.includes("KXHIGHT") || et.includes("KXHIGH") || et.includes("KXLOWT") || et.includes("KXWEATHER") || et.includes("KXRAIN") || et.includes("KXSNOW") || title.includes("temperature") || title.includes("high temp") || title.includes("rainfall")) category = "Weather";
+  // Crypto
+  else if (et.includes("KXBTC") || et.includes("KXETH") || et.includes("KXSOL") || et.includes("KXDOGE") || et.includes("KXXRP") || et.includes("KXSHIBA") || et.includes("KXCRYPTO") || title.includes("bitcoin") || title.includes("ethereum")) category = "Crypto";
+  // Pop Culture & Entertainment
+  else if (et.includes("KXSPOT") || title.includes("spotify") || title.includes("streams")) category = "Pop Culture";
+  // Politics & Government
+  else if (et.includes("KXEO") || et.includes("KXPOL") || et.includes("KXGOV") || title.includes("president") || title.includes("executive order") || title.includes("congress") || title.includes("senate") || title.includes("tariff")) category = "Politics";
+  // Economics
+  else if (et.includes("KXECON") || et.includes("KXAAAG") || et.includes("CPI") || et.includes("GDP") || et.includes("FED") || et.includes("FOMC") || title.includes("gas price")) category = "Economics";
+  // MVE combo markets
+  else if (et.includes("KXMVE")) category = "Cross-Category";
 
   return {
     ticker: raw.ticker,
