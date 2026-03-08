@@ -71,8 +71,9 @@ export interface KalshiEvent {
 }
 
 function parseMarket(raw: KalshiMarketRaw): KalshiMarket {
-  // Derive category from event ticker prefix
+  // Derive category from event ticker prefix and title
   const et = raw.event_ticker || "";
+  const title = (raw.title || "").toLowerCase();
   let category = "Other";
   if (et.includes("NBA")) category = "NBA Basketball";
   else if (et.includes("NHL")) category = "NHL Hockey";
@@ -87,8 +88,9 @@ function parseMarket(raw: KalshiMarketRaw): KalshiMarket {
   else if (et.includes("KXWBC")) category = "World Baseball Classic";
   else if (et.includes("KXECON") || et.includes("CPI") || et.includes("GDP") || et.includes("FED") || et.includes("FOMC")) category = "Economics";
   else if (et.includes("KXPOL") || et.includes("TRUMP") || et.includes("BIDEN") || et.includes("CONGRESS")) category = "Politics";
-  else if (et.includes("KXWEATHER") || et.includes("TEMP") || et.includes("RAIN")) category = "Weather";
-  else if (et.includes("KXCRYPTO") || et.includes("BTC") || et.includes("ETH")) category = "Crypto";
+  else if (et.includes("KXHIGHT") || et.includes("KXLOWT") || et.includes("KXWEATHER") || et.includes("KXRAIN") || et.includes("KXSNOW") || title.includes("temperature") || title.includes("high temp") || title.includes("rainfall")) category = "Weather";
+  else if (et.includes("KXBTC") || et.includes("KXETH") || et.includes("KXCRYPTO") || et.includes("KXSOL") || title.includes("bitcoin") || title.includes("ethereum")) category = "Crypto";
+  else if (et.includes("KXMVECROSS")) category = "Cross-Category";
 
   return {
     ticker: raw.ticker,
@@ -233,8 +235,8 @@ export function enrichMarket(market: KalshiMarket): KalshiMarket {
   };
 }
 
-export function scoreAndRankMarkets(markets: KalshiMarket[]): KalshiMarket[] {
-  return markets
+export function scoreAndRankMarkets(markets: KalshiMarket[], maxPerCategory = 5): KalshiMarket[] {
+  const scored = markets
     .map(enrichMarket)
     .filter((m) => {
       const yesPrice = m.yes_ask_dollars || m.yes_bid_dollars || 0;
@@ -282,8 +284,26 @@ export function scoreAndRankMarkets(markets: KalshiMarket[]): KalshiMarket[] {
       const urgencyB = hoursToCloseB <= 6 ? 1.0 : hoursToCloseB <= 12 ? 0.8 : hoursToCloseB <= 24 ? 0.6 : hoursToCloseB <= 48 ? 0.4 : hoursToCloseB <= 168 ? 0.15 : 0;
 
       // Composite: time urgency is the biggest factor
-      const scoreA = urgencyA * 0.45 + uncertaintyA * 0.20 + volA * 0.20 + spreadA * 0.15;
-      const scoreB = urgencyB * 0.45 + uncertaintyB * 0.20 + volB * 0.20 + spreadB * 0.15;
+      const scoreA = urgencyA * 0.30 + uncertaintyA * 0.25 + volA * 0.25 + spreadA * 0.20;
+      const scoreB = urgencyB * 0.30 + uncertaintyB * 0.25 + volB * 0.25 + spreadB * 0.20;
       return scoreB - scoreA;
     });
+
+  // Diversify: cap each category so no single type dominates
+  const categoryCounts: Record<string, number> = {};
+  const diversified: KalshiMarket[] = [];
+  const overflow: KalshiMarket[] = [];
+
+  for (const m of scored) {
+    const cat = m.category || "Other";
+    categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+    if (categoryCounts[cat] <= maxPerCategory) {
+      diversified.push(m);
+    } else {
+      overflow.push(m);
+    }
+  }
+
+  // Append overflow at the end so they're still available if needed
+  return [...diversified, ...overflow];
 }
