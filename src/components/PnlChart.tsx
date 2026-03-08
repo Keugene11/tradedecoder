@@ -17,14 +17,11 @@ interface PnlChartProps {
 }
 
 export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
-  // Group trades by time bucket to avoid 42 nearly-identical points
   const allTrades = [...trades].sort(
     (a, b) =>
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
 
-  // Build data: start -> each trade batch -> current state
-  // Group trades that happened within 5 minutes of each other
   const buckets: { label: string; trades: PaperTrade[] }[] = [];
   let currentBucket: PaperTrade[] = [];
   let bucketStart = 0;
@@ -53,7 +50,6 @@ export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
     });
   }
 
-  // Build cumulative data points
   const dataPoints: {
     name: string;
     balance: number;
@@ -74,7 +70,6 @@ export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
 
   for (const bucket of buckets) {
     let bucketCost = 0;
-    let bucketPnl = 0;
     let bucketReturns = 0;
 
     for (const trade of bucket.trades) {
@@ -82,7 +77,6 @@ export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
       totalTrades++;
 
       if (trade.status !== "open" && trade.pnl !== null) {
-        bucketPnl += trade.pnl;
         if (trade.status === "settled_win") {
           bucketReturns += trade.quantity * 1;
         } else if (trade.status === "expired") {
@@ -102,7 +96,6 @@ export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
     });
   }
 
-  // Add "Now" point showing current portfolio value (balance + value of open positions)
   const openValue = allTrades
     .filter((t) => t.status === "open")
     .reduce((sum, t) => sum + t.cost, 0);
@@ -114,22 +107,22 @@ export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
   );
   const maxVal = Math.max(startingBalance, portfolioValue);
   const totalPnl = portfolioValue - startingBalance;
-  const pnlColor = totalPnl >= 0 ? "#10b981" : "#6366f1";
+  const pnlColor = totalPnl >= 0 ? "#00D632" : "#FF5A4F";
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+    <div className="bg-surface border border-border rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-sm font-semibold text-gray-700">
+          <h3 className="text-sm font-semibold text-text-secondary">
             Portfolio Overview
           </h3>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-3xl font-bold text-text-primary tracking-[-0.02em]">
             $
             {portfolioValue.toLocaleString("en-US", {
               minimumFractionDigits: 2,
             })}
           </p>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="text-xs text-text-tertiary mt-0.5">
             ${runningBalance.toFixed(2)} cash + ${openValue.toFixed(2)} in open
             bets
           </p>
@@ -137,14 +130,14 @@ export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
         <div className="text-right">
           <div className="flex items-center gap-4">
             <div>
-              <p className="text-xs text-gray-400">Invested</p>
-              <p className="text-sm font-bold text-indigo-600">
+              <p className="text-xs text-text-tertiary">Invested</p>
+              <p className="text-sm font-bold text-info">
                 ${totalInvested.toFixed(2)}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-400">Trades</p>
-              <p className="text-sm font-bold text-gray-700">{totalTrades}</p>
+              <p className="text-xs text-text-tertiary">Trades</p>
+              <p className="text-sm font-bold text-text-primary">{totalTrades}</p>
             </div>
           </div>
         </div>
@@ -154,16 +147,16 @@ export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
         <AreaChart data={dataPoints}>
           <defs>
             <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={pnlColor} stopOpacity={0.15} />
+              <stop offset="5%" stopColor={pnlColor} stopOpacity={0.2} />
               <stop offset="95%" stopColor={pnlColor} stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+          <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" />
           <XAxis
             dataKey="name"
-            tick={{ fontSize: 10, fill: "#9ca3af" }}
+            tick={{ fontSize: 10, fill: "#555555" }}
             tickLine={false}
-            axisLine={{ stroke: "#e5e7eb" }}
+            axisLine={{ stroke: "#2A2A2A" }}
             interval="preserveStartEnd"
           />
           <YAxis
@@ -171,19 +164,19 @@ export default function PnlChart({ trades, startingBalance }: PnlChartProps) {
               Math.floor(minVal * 0.98),
               Math.ceil(maxVal * 1.01),
             ]}
-            tick={{ fontSize: 10, fill: "#9ca3af" }}
+            tick={{ fontSize: 10, fill: "#555555" }}
             tickLine={false}
-            axisLine={{ stroke: "#e5e7eb" }}
+            axisLine={{ stroke: "#2A2A2A" }}
             tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`}
             width={55}
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: "#fff",
-              border: "1px solid #e5e7eb",
+              backgroundColor: "#1C1C1C",
+              border: "1px solid #2A2A2A",
               borderRadius: "8px",
               fontSize: "12px",
-              boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.05)",
+              color: "#FAFAFA",
             }}
             formatter={(value, name) => {
               const v = Number(value);

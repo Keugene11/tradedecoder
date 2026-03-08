@@ -5,17 +5,17 @@ import { TrendingUp } from "lucide-react";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-50 shadow-sm">
+    <div className="min-h-screen bg-background text-text-primary">
+      <header className="border-b border-border bg-surface/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3">
-          <div className="bg-gradient-to-br from-violet-500 to-purple-600 p-2 rounded-lg text-white">
+          <div className="bg-accent p-2 rounded-lg text-background">
             <TrendingUp size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-gray-900">
+            <h1 className="text-xl font-bold tracking-[-0.02em] text-text-primary">
               TradeDecoder
             </h1>
-            <p className="text-gray-400 text-xs">
+            <p className="text-text-tertiary text-xs">
               AI Paper Trading on Kalshi Markets
             </p>
           </div>

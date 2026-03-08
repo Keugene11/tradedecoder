@@ -128,13 +128,13 @@ export default function PaperTrading() {
             label="Balance"
             value={`$${stats.balance.toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
             icon={<DollarSign size={18} />}
-            color="blue"
+            color="accent"
           />
           <StatCard
             label="Invested"
             value={`$${stats.total_invested.toFixed(2)}`}
             icon={<Target size={18} />}
-            color="indigo"
+            color="info"
           />
           <StatCard
             label="Total P&L"
@@ -146,25 +146,25 @@ export default function PaperTrading() {
                 <TrendingDown size={18} />
               )
             }
-            color={stats.total_pnl >= 0 ? "emerald" : "red"}
+            color={stats.total_pnl >= 0 ? "gain" : "loss"}
           />
           <StatCard
             label="Win Rate"
             value={`${stats.win_rate}%`}
             icon={<Trophy size={18} />}
-            color="amber"
+            color="warning"
           />
           <StatCard
             label="Open"
             value={String(stats.open_trades)}
             icon={<Clock size={18} />}
-            color="sky"
+            color="info"
           />
           <StatCard
             label="Settled"
             value={String(stats.total_trades)}
             icon={<Target size={18} />}
-            color="gray"
+            color="secondary"
           />
         </div>
       )}
@@ -175,7 +175,7 @@ export default function PaperTrading() {
         <button
           onClick={runAutoTrade}
           disabled={autoTrading}
-          className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white font-semibold px-5 py-2.5 rounded-lg transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-violet-500/20"
+          className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-background font-semibold px-5 py-2.5 rounded-lg transition-all cursor-pointer disabled:opacity-50"
         >
           {autoTrading ? (
             <>
@@ -192,7 +192,7 @@ export default function PaperTrading() {
         <button
           onClick={settleTrades}
           disabled={settling || openTrades.length === 0}
-          className="flex items-center gap-2 bg-white border border-gray-200 hover:border-gray-300 text-gray-700 font-medium px-4 py-2.5 rounded-lg transition-all cursor-pointer disabled:opacity-50 text-sm"
+          className="flex items-center gap-2 bg-transparent border border-border hover:border-border-hover text-text-primary font-medium px-4 py-2.5 rounded-lg transition-all cursor-pointer disabled:opacity-50 text-sm"
         >
           {settling ? (
             <Loader2 size={16} className="animate-spin" />
@@ -204,7 +204,7 @@ export default function PaperTrading() {
         <button
           onClick={fetchTrades}
           disabled={loading}
-          className="p-2.5 rounded-lg border border-gray-200 hover:border-gray-300 text-gray-500 hover:text-gray-700 transition-all cursor-pointer disabled:opacity-50"
+          className="p-2.5 rounded-lg border border-border hover:border-border-hover text-text-secondary hover:text-text-primary transition-all cursor-pointer disabled:opacity-50"
         >
           <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
         </button>
@@ -212,7 +212,7 @@ export default function PaperTrading() {
           <button
             onClick={resetAll}
             disabled={resetting}
-            className="flex items-center gap-2 bg-white border border-red-200 hover:border-red-300 hover:bg-red-50 text-red-600 font-medium px-4 py-2.5 rounded-lg transition-all cursor-pointer disabled:opacity-50 text-sm ml-auto"
+            className="flex items-center gap-2 bg-transparent border border-loss/30 hover:border-loss/60 hover:bg-loss/10 text-loss font-medium px-4 py-2.5 rounded-lg transition-all cursor-pointer disabled:opacity-50 text-sm ml-auto"
           >
             {resetting ? (
               <Loader2 size={16} className="animate-spin" />
@@ -225,15 +225,15 @@ export default function PaperTrading() {
       </div>
 
       {message && (
-        <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl p-3 text-sm">
-          <AlertCircle size={16} />
+        <div className="flex items-center gap-2 bg-surface border border-border text-text-secondary rounded-xl p-3 text-sm">
+          <AlertCircle size={16} className="text-accent flex-shrink-0" />
           {message}
         </div>
       )}
 
       {openTrades.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+          <h3 className="text-sm font-semibold text-text-tertiary uppercase tracking-wider mb-3">
             Open Positions ({openTrades.length})
           </h3>
           <div className="space-y-2">
@@ -246,7 +246,7 @@ export default function PaperTrading() {
 
       {settledTrades.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+          <h3 className="text-sm font-semibold text-text-tertiary uppercase tracking-wider mb-3">
             Trade History ({settledTrades.length})
           </h3>
           <div className="space-y-2">
@@ -259,8 +259,8 @@ export default function PaperTrading() {
 
       {trades.length === 0 && !loading && (
         <div className="text-center py-12">
-          <Bot size={40} className="text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">
+          <Bot size={40} className="text-text-tertiary mx-auto mb-3" />
+          <p className="text-text-secondary text-sm">
             No trades yet. Click &quot;AI Auto-Trade&quot; to let the AI analyze
             markets and place bets.
           </p>
@@ -282,24 +282,23 @@ function StatCard({
   color: string;
 }) {
   const colorMap: Record<string, string> = {
-    blue: "text-blue-600",
-    indigo: "text-indigo-600",
-    emerald: "text-emerald-600",
-    red: "text-red-600",
-    amber: "text-amber-600",
-    sky: "text-sky-600",
-    gray: "text-gray-600",
+    accent: "text-accent",
+    info: "text-info",
+    gain: "text-gain",
+    loss: "text-loss",
+    warning: "text-warning",
+    secondary: "text-text-secondary",
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-      <div className={`${colorMap[color] || "text-gray-600"} mb-1`}>
+    <div className="bg-surface border border-border rounded-xl p-4">
+      <div className={`${colorMap[color] || "text-text-secondary"} mb-1`}>
         {icon}
       </div>
-      <p className={`text-xl font-bold ${colorMap[color] || "text-gray-900"}`}>
+      <p className={`text-xl font-bold ${colorMap[color] || "text-text-primary"}`}>
         {value}
       </p>
-      <p className="text-gray-400 text-xs mt-0.5">{label}</p>
+      <p className="text-text-tertiary text-xs mt-0.5">{label}</p>
     </div>
   );
 }
