@@ -117,14 +117,7 @@ export async function POST(request: Request) {
         message: "No trades meet criteria",
         trades_placed: 0,
         analyses_count: allAnalyses.length,
-        debug: {
-          raw_markets: allMarkets.length,
-          ranked_markets: ranked.length,
-          diverse_list: diverseList.length,
-          existing_positions: existingTickers.size,
-          blocked_events: existingEventTickers.size,
-          categories: categories.length,
-        },
+        markets_screened: diverseList.length,
       });
     }
 
