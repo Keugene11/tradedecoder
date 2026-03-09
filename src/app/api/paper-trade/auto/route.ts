@@ -96,16 +96,21 @@ export async function POST(request: Request) {
       allAnalyses.push(...analyses);
     }
 
-    const bets = allAnalyses.filter(
-      (a) =>
+    const bets = allAnalyses.filter((a) => {
+      const price = typeof a.entry_price === "string" ? parseFloat(a.entry_price) : a.entry_price;
+      const confidence = typeof a.confidence === "string" ? parseFloat(a.confidence as string) : a.confidence;
+      const edge = typeof a.math_breakdown?.edge_pct === "string"
+        ? parseFloat(a.math_breakdown.edge_pct as string)
+        : (a.math_breakdown?.edge_pct || 0);
+      return (
         (a.recommendation === "STRONG_BUY" || a.recommendation === "BUY") &&
-        a.confidence >= 55 &&
-        a.entry_price <= MAX_ENTRY_PRICE &&
-        a.entry_price >= 0.10 && // Don't take extreme longshots
-        // Require a minimum edge claim
-        (a.math_breakdown?.edge_pct || 0) >= 3 &&
+        confidence >= 55 &&
+        price <= MAX_ENTRY_PRICE &&
+        price >= 0.10 &&
+        edge >= 3 &&
         !existingTickers.has(a.ticker)
-    );
+      );
+    });
 
     if (bets.length === 0) {
       return NextResponse.json({
@@ -131,6 +136,12 @@ export async function POST(request: Request) {
     for (const bet of bets) {
       if (remainingBudget < 1) break;
 
+      // Ensure entry_price is a number (AI sometimes returns strings)
+      const entryPrice = typeof bet.entry_price === "string"
+        ? parseFloat(bet.entry_price)
+        : bet.entry_price;
+      if (!entryPrice || isNaN(entryPrice) || entryPrice <= 0) continue;
+
       // Check: don't bet both sides of the same event
       const betEventBase = bet.ticker.split("-").slice(0, -1).join("-");
       if (existingEventTickers.has(betEventBase) || sessionEventTickers.has(betEventBase)) {
@@ -145,15 +156,14 @@ export async function POST(request: Request) {
       }
 
       // Position sizing with caps
-      const kellyFraction = Math.min(
-        (bet.math_breakdown?.kelly_fraction_pct || 5) / 100,
-        0.15 // Cap Kelly at 15%
-      );
+      const kellyRaw = bet.math_breakdown?.kelly_fraction_pct;
+      const kellyParsed = typeof kellyRaw === "string" ? parseFloat(kellyRaw) : (kellyRaw || 5);
+      const kellyFraction = Math.min(kellyParsed / 100, 0.15);
       const kellySize = Math.floor(remainingBudget * kellyFraction * 0.25); // quarter-Kelly
-      const maxByPosition = Math.floor(MAX_POSITION_DOLLARS / bet.entry_price);
-      const maxByBudget = Math.floor(remainingBudget / bet.entry_price);
+      const maxByPosition = Math.floor(MAX_POSITION_DOLLARS / entryPrice);
+      const maxByBudget = Math.floor(remainingBudget / entryPrice);
       const maxByCatRoom = Math.floor(
-        (MAX_CATEGORY_EXPOSURE - currentCatExposure) / bet.entry_price
+        (MAX_CATEGORY_EXPOSURE - currentCatExposure) / entryPrice
       );
 
       const positionSize = Math.min(
@@ -165,7 +175,7 @@ export async function POST(request: Request) {
 
       if (positionSize <= 0) continue;
 
-      const cost = bet.entry_price * positionSize;
+      const cost = entryPrice * positionSize;
       if (cost > remainingBudget) continue;
 
       const trade = await addTrade({
@@ -174,7 +184,7 @@ export async function POST(request: Request) {
         title: bet.title,
         category: bet.category,
         position: bet.target_position,
-        entry_price: bet.entry_price,
+        entry_price: entryPrice,
         quantity: positionSize,
         cost,
         confidence: bet.confidence,
