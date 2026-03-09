@@ -1,3 +1,5 @@
+import { extractDateFromTicker } from "./market-data";
+
 const BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
 
 export interface KalshiMarketRaw {
@@ -290,13 +292,25 @@ export function scoreAndRankMarkets(markets: KalshiMarket[], maxPerCategory = 5)
       const spreadA = 1 - Math.min((a.spread || 0) / 0.10, 1);
       const spreadB = 1 - Math.min((b.spread || 0) / 0.10, 1);
 
-      // Time urgency — heavily favor markets closing within 48 hours
-      const hoursToCloseA = a.close_time ? (new Date(a.close_time).getTime() - now) / (1000 * 60 * 60) : 999;
-      const hoursToCloseB = b.close_time ? (new Date(b.close_time).getTime() - now) / (1000 * 60 * 60) : 999;
+      // Time urgency — use EVENT DATE from ticker (actual game day) rather than
+      // close_time (Kalshi's outer settlement window, often 2+ weeks out)
+      const getEventHours = (m: KalshiMarket) => {
+        const eventDate = extractDateFromTicker(m.ticker) || extractDateFromTicker(m.event_ticker);
+        if (eventDate) {
+          // Event date is the actual game day — add 24h for end-of-day resolution
+          const eventEnd = new Date(eventDate + "T23:59:59Z").getTime();
+          return (eventEnd - now) / (1000 * 60 * 60);
+        }
+        // Fallback to close_time
+        return m.close_time ? (new Date(m.close_time).getTime() - now) / (1000 * 60 * 60) : 999;
+      };
 
-      // Score: 1.0 for closing within 6h, 0.8 for 12h, 0.5 for 24h, 0.3 for 48h, 0.0 for 7d+
-      const urgencyA = hoursToCloseA <= 6 ? 1.0 : hoursToCloseA <= 12 ? 0.8 : hoursToCloseA <= 24 ? 0.6 : hoursToCloseA <= 48 ? 0.4 : hoursToCloseA <= 168 ? 0.15 : 0;
-      const urgencyB = hoursToCloseB <= 6 ? 1.0 : hoursToCloseB <= 12 ? 0.8 : hoursToCloseB <= 24 ? 0.6 : hoursToCloseB <= 48 ? 0.4 : hoursToCloseB <= 168 ? 0.15 : 0;
+      const hoursToEventA = getEventHours(a);
+      const hoursToEventB = getEventHours(b);
+
+      // Score: 1.0 for today (within 24h), 0.7 for tomorrow, 0.4 for 2 days, 0.2 for this week, 0.0 for 7d+
+      const urgencyA = hoursToEventA <= 12 ? 1.0 : hoursToEventA <= 24 ? 0.9 : hoursToEventA <= 48 ? 0.7 : hoursToEventA <= 72 ? 0.4 : hoursToEventA <= 168 ? 0.2 : 0;
+      const urgencyB = hoursToEventB <= 12 ? 1.0 : hoursToEventB <= 24 ? 0.9 : hoursToEventB <= 48 ? 0.7 : hoursToEventB <= 72 ? 0.4 : hoursToEventB <= 168 ? 0.2 : 0;
 
       // Composite: time urgency is the biggest factor
       const scoreA = urgencyA * 0.30 + uncertaintyA * 0.25 + volA * 0.25 + spreadA * 0.20;

@@ -1,5 +1,5 @@
 import type { KalshiMarket } from "./kalshi";
-import { buildMarketContext } from "./market-data";
+import { buildMarketContext, extractDateFromTicker } from "./market-data";
 
 const DEDALUS_API_URL = "https://api.dedaluslabs.ai";
 
@@ -77,9 +77,14 @@ export async function analyzeMarkets(
 ): Promise<TradeAnalysis[]> {
   const now = new Date().toISOString();
   const marketSummaries = markets.slice(0, 15).map((m) => {
-    const hoursToClose = m.close_time
-      ? (new Date(m.close_time).getTime() - Date.now()) / (1000 * 60 * 60)
-      : null;
+    // Use actual event date from ticker, not Kalshi's outer settlement window
+    const eventDate = extractDateFromTicker(m.ticker) || extractDateFromTicker(m.event_ticker);
+    const eventTime = eventDate ? new Date(eventDate + "T23:59:59Z").getTime() : null;
+    const hoursUntilEvent = eventTime
+      ? (eventTime - Date.now()) / (1000 * 60 * 60)
+      : m.close_time
+        ? (new Date(m.close_time).getTime() - Date.now()) / (1000 * 60 * 60)
+        : null;
 
     // Pre-compute both sides so the AI sees them equally
     const yesCost = m.yes_ask_dollars;
@@ -92,6 +97,7 @@ export async function analyzeMarkets(
       title: m.title,
       category: m.category,
       event_ticker: m.event_ticker,
+      event_date: eventDate || null,
       // Present both sides clearly
       YES_side: {
         cost: yesCost,
@@ -110,7 +116,7 @@ export async function analyzeMarkets(
       volume_24h: m.volume_24h_fp,
       open_interest: m.open_interest_fp,
       close_time: m.close_time,
-      hours_until_close: hoursToClose ? Math.round(hoursToClose * 10) / 10 : null,
+      hours_until_event: hoursUntilEvent ? Math.round(hoursUntilEvent * 10) / 10 : null,
       spread: m.spread,
       rules: m.rules_primary?.substring(0, 200),
     };

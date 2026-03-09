@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readStore, addTrade } from "@/lib/store";
 import { analyzeMarkets } from "@/lib/dedalus";
 import { fetchAllOpenMarkets, scoreAndRankMarkets } from "@/lib/kalshi";
+import { extractDateFromTicker } from "@/lib/market-data";
 
 export const maxDuration = 300;
 
@@ -194,7 +195,12 @@ export async function POST(request: Request) {
           risk_level: bet.risk_level,
           potential_return_pct: bet.potential_return_pct,
         }),
-        close_time: marketByTicker.get(bet.ticker)?.close_time || null,
+        close_time: (() => {
+          // Use actual event date from ticker (game day) instead of Kalshi's outer window
+          const eventDate = extractDateFromTicker(bet.ticker);
+          if (eventDate) return eventDate + "T23:59:59Z";
+          return marketByTicker.get(bet.ticker)?.close_time || null;
+        })(),
       });
 
       placedTrades.push(trade);
