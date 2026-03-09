@@ -47,6 +47,8 @@ export async function POST(request: Request) {
     const marketByTicker = new Map(allMarkets.map((m) => [m.ticker, m]));
     const numBatches = Math.min(batchCount || 5, 8);
 
+    console.log(`[auto-trade] Raw markets: ${allMarkets.length}, Ranked: ${ranked.length}, Existing tickers: ${existingTickers.size}, Existing events: ${existingEventTickers.size}`);
+
     // Build diverse batches: round-robin across categories
     const byCategory: Record<string, typeof ranked> = {};
     for (const m of ranked) {
@@ -84,6 +86,8 @@ export async function POST(request: Request) {
       }
     }
 
+    console.log(`[auto-trade] DiverseList: ${diverseList.length}, Categories: ${categories.length}, Target: ${targetCount}`);
+
     const allAnalyses = [];
     for (let i = 0; i < numBatches; i++) {
       const batch = diverseList.slice(i * 10, (i + 1) * 10);
@@ -109,6 +113,14 @@ export async function POST(request: Request) {
         message: "No trades meet criteria",
         trades_placed: 0,
         analyses_count: allAnalyses.length,
+        debug: {
+          raw_markets: allMarkets.length,
+          ranked_markets: ranked.length,
+          diverse_list: diverseList.length,
+          existing_positions: existingTickers.size,
+          blocked_events: existingEventTickers.size,
+          categories: categories.length,
+        },
       });
     }
 
