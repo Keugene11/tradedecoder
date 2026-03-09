@@ -1,5 +1,6 @@
 import type { KalshiMarket } from "./kalshi";
 import { buildMarketContext, extractDateFromTicker } from "./market-data";
+import { buildOddsContext } from "./odds";
 
 const DEDALUS_API_URL = "https://api.dedaluslabs.ai";
 
@@ -124,7 +125,20 @@ export async function analyzeMarkets(
 
   const tickers = marketSummaries.map((m) => m.ticker);
   const eventTickers = marketSummaries.map((m) => m.event_ticker);
-  const realTimeContext = await buildMarketContext(tickers, eventTickers);
+
+  // Fetch real-time data and sportsbook odds in parallel
+  const [realTimeContext, oddsContext] = await Promise.all([
+    buildMarketContext(tickers, eventTickers),
+    buildOddsContext(
+      markets.slice(0, 15).map((m) => ({
+        ticker: m.ticker,
+        title: m.title,
+        category: m.category || "Other",
+        yes_ask: m.yes_ask_dollars,
+        no_ask: m.no_ask_dollars,
+      }))
+    ),
+  ]);
 
   const systemPrompt = `You are a sharp prediction market trader. You profit by finding mispriced odds on BOTH sides — YES and NO.
 
@@ -140,11 +154,11 @@ YOUR APPROACH:
 4. If too low → bet YES (the crowd is undervaluing)
 5. The cheaper side usually has better profit potential — pay attention to it
 
-EDGE SOURCES:
-- REAL-TIME DATA: Crypto prices or weather forecasts vs market prices (strongest edge)
-- STRUCTURAL MISPRICING: Home/away advantage, team quality tiers, matchup dynamics
-- CROWD OVERCONFIDENCE: Favorites are often overpriced — NO bets on overpriced favorites are a core profit strategy
-- LOW LIQUIDITY: Illiquid markets often have wider edges
+EDGE SOURCES (ranked by reliability):
+1. SPORTSBOOK ODDS MISMATCH (strongest): When real sportsbooks (DraftKings, FanDuel) price a team differently than Kalshi, ALWAYS trust the sportsbooks — they have sharper lines. If sportsbooks say 60% but Kalshi says 45%, that's a strong YES. If sportsbooks say 40% but Kalshi says 55%, that's a strong NO.
+2. REAL-TIME DATA: Crypto prices or weather forecasts vs market prices — hard math beats guessing.
+3. LIVE GAME DATA: ESPN standings, scores, records — use these for informed analysis, not gut feeling.
+4. STRUCTURAL MISPRICING: Home/away advantage, matchup dynamics — use only when sportsbook data is unavailable.
 
 RULES:
 1. MIX of YES and NO positions — aim for roughly 40-60% NO bets. Favorites (YES > $0.55) are often overpriced, making NO the better value
@@ -158,7 +172,7 @@ You MUST respond with valid JSON only. No markdown, no code blocks.`;
 
   const userPrompt = `Find the best bets across these markets. IMPORTANT: Look at both YES_side and NO_side for each market — the cheaper side often has more edge.
 
-${realTimeContext ? `REAL-TIME DATA (use these to calculate actual probabilities):\n${realTimeContext}\n` : ""}Markets:
+${oddsContext ? `${oddsContext}\n` : ""}${realTimeContext ? `REAL-TIME DATA (use these to calculate actual probabilities):\n${realTimeContext}\n` : ""}Markets:
 ${JSON.stringify(marketSummaries, null, 2)}
 
 For each market:

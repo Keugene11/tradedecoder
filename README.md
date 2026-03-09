@@ -42,14 +42,14 @@ AI-powered paper trading on [Kalshi](https://kalshi.com) prediction markets. Ana
 5. Places bets using quarter-Kelly criterion for position sizing
 6. Skips markets already in the portfolio
 
-## AI Analysis
+## Edge Detection
 
-The AI uses honest structural reasoning rather than fabricating statistics:
+The system finds mispricings through quantitative signals, not AI guessing:
 
-- **Market structure:** Is the price in a range where edges exist? Spread tight or wide?
-- **Structural reasoning:** Home court, matchup dynamics, team quality tiers
-- **Odds analysis:** Does the implied probability feel right for this event?
-- **Time calibration:** Same-day bets get short-term analysis, not macro essays
+1. **Sportsbook odds comparison** (strongest) — Compares Kalshi prices against DraftKings, FanDuel, BetMGM via The Odds API. Removes vig to get fair probabilities. If sportsbooks say 60% but Kalshi says 45%, that's a quantifiable edge.
+2. **Real-time data mismatch** — Live crypto prices (CoinGecko) and weather forecasts (Open-Meteo) compared against market strike prices. Hard math, not vibes.
+3. **ESPN live data** — NBA/NHL standings, win/loss records, home/away splits, streaks, and live scoreboards injected into analysis.
+4. **Both-sides analysis** — Every market is pre-computed showing YES and NO cost/profit/availability. The AI sees both sides equally, preventing YES-only bias.
 
 ## Settlement Rules
 
@@ -70,6 +70,7 @@ Create `.env.local`:
 DEDALUS_API_KEY=your_key
 UPSTASH_REDIS_REST_URL=your_url
 UPSTASH_REDIS_REST_TOKEN=your_token
+ODDS_API_KEY=your_key  # Free at https://the-odds-api.com (500 req/month)
 ```
 
 ```bash
