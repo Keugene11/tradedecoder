@@ -80,22 +80,37 @@ export async function analyzeMarkets(
     const hoursToClose = m.close_time
       ? (new Date(m.close_time).getTime() - Date.now()) / (1000 * 60 * 60)
       : null;
+
+    // Pre-compute both sides so the AI sees them equally
+    const yesCost = m.yes_ask_dollars;
+    const noCost = m.no_ask_dollars;
+    const yesProfit = yesCost > 0 ? ((1 - yesCost) / yesCost * 100).toFixed(0) : "0";
+    const noProfit = noCost > 0 ? ((1 - noCost) / noCost * 100).toFixed(0) : "0";
+
     return {
       ticker: m.ticker,
       title: m.title,
       category: m.category,
       event_ticker: m.event_ticker,
-      yes_bid: m.yes_bid_dollars,
-      yes_ask: m.yes_ask_dollars,
-      no_bid: m.no_bid_dollars,
-      no_ask: m.no_ask_dollars,
+      // Present both sides clearly
+      YES_side: {
+        cost: yesCost,
+        implied_prob: `${(yesCost * 100).toFixed(0)}%`,
+        profit_if_right: `+${yesProfit}%`,
+        available: yesCost > 0 && yesCost <= 0.70,
+      },
+      NO_side: {
+        cost: noCost,
+        implied_prob: `${(noCost * 100).toFixed(0)}%`,
+        profit_if_right: `+${noProfit}%`,
+        available: noCost > 0 && noCost <= 0.70,
+      },
+      cheaper_side: yesCost <= noCost ? "YES" : "NO",
       last_price: m.last_price_dollars,
       volume_24h: m.volume_24h_fp,
       open_interest: m.open_interest_fp,
       close_time: m.close_time,
       hours_until_close: hoursToClose ? Math.round(hoursToClose * 10) / 10 : null,
-      implied_probability: m.implied_probability,
-      expected_value: m.expected_value,
       spread: m.spread,
       rules: m.rules_primary?.substring(0, 200),
     };
@@ -105,50 +120,64 @@ export async function analyzeMarkets(
   const eventTickers = marketSummaries.map((m) => m.event_ticker);
   const realTimeContext = await buildMarketContext(tickers, eventTickers);
 
-  const systemPrompt = `You are a sharp prediction market trader. You find edges by combining real-time data, structural reasoning, and market dynamics. Your goal is to find 2-5 good bets per batch.
+  const systemPrompt = `You are a sharp prediction market trader. You profit by finding mispriced odds on BOTH sides — YES and NO.
 
-HOW TO FIND EDGES:
-1. DATA MISMATCH (strongest): Real-time crypto prices or weather forecasts that contradict the market price. E.g., BTC at $66,300 but market prices "above $68k" at 50% — bet NO.
-2. STRUCTURAL MISPRICING: Favorites priced too low on illiquid markets, underdogs with genuine upset potential priced too cheaply, or NO positions where the crowd is overconfident.
-3. SPORT/EVENT KNOWLEDGE: Use your knowledge of teams, players, matchups, form, home/away advantages. NBA, NHL, NCAA, soccer, tennis — you know these sports well.
-4. TIME-BASED EDGES: Markets closing soon have less time for reversals. A team up big at halftime is more likely to win than the pre-game odds suggest.
+KEY INSIGHT: In prediction markets, every bet has two sides. "Will Team X win?" at $0.65 means:
+- YES costs $0.65, profits +54% if they win
+- NO costs $0.35, profits +186% if they lose
+The NO side often has BETTER risk/reward because crowds overestimate favorites.
+
+YOUR APPROACH:
+1. For each market, look at BOTH the YES_side and NO_side data provided
+2. Ask: "Is the implied probability too high or too low?"
+3. If too high → bet NO (the crowd is overconfident)
+4. If too low → bet YES (the crowd is undervaluing)
+5. The cheaper side usually has better profit potential — pay attention to it
+
+EDGE SOURCES:
+- REAL-TIME DATA: Crypto prices or weather forecasts vs market prices (strongest edge)
+- STRUCTURAL MISPRICING: Home/away advantage, team quality tiers, matchup dynamics
+- CROWD OVERCONFIDENCE: Favorites are often overpriced — NO bets on overpriced favorites are a core profit strategy
+- LOW LIQUIDITY: Illiquid markets often have wider edges
 
 RULES:
-1. CONSIDER BOTH SIDES: For every market, evaluate YES and NO. The cheaper side often has more edge. NO bets on overpriced favorites are a key profit source.
-2. NO FABRICATED STATS: Never invent specific player stats or game scores. Use structural reasoning ("home team advantage", "team on a winning streak", "clear favorite").
-3. ENTRY PRICE: Must match yes_ask (for YES bets) or no_ask (for NO bets) from the market data.
-4. MAX PRICE: Never recommend a bet priced above $0.70 — the risk/reward is poor.
-5. AIM FOR 2-5 picks per batch. Quality over quantity, but don't be afraid to act when you see value.
+1. MUST recommend at least 1 NO position per batch if any market has an overpriced favorite (YES > $0.55)
+2. Never invent specific statistics — use structural reasoning for sports
+3. entry_price MUST match: yes_ask for YES bets, no_ask for NO bets (from market data)
+4. Never recommend bets priced above $0.70
+5. Return 2-5 picks per batch
 
 Current time: ${now}
 You MUST respond with valid JSON only. No markdown, no code blocks.`;
 
-  const userPrompt = `Analyze these markets and find the best bets. Look for value on BOTH sides (YES and NO). Aim for 2-5 picks.
+  const userPrompt = `Find the best bets across these markets. IMPORTANT: Look at both YES_side and NO_side for each market — the cheaper side often has more edge.
 
 ${realTimeContext ? `REAL-TIME DATA (use these to calculate actual probabilities):\n${realTimeContext}\n` : ""}Markets:
 ${JSON.stringify(marketSummaries, null, 2)}
 
-For each market, consider:
-- Is the price fair? If not, which side (YES or NO) has the edge?
-- For crypto/weather: compare real-time data to the strike price
-- For sports: use team quality, matchups, home/away, momentum, and structural factors
-- NO bets are often profitable — crowds overestimate favorites
+For each market:
+1. Check YES_side and NO_side — which is available (cost <= $0.70)?
+2. Is the implied probability accurate? Too high = bet NO, too low = bet YES
+3. For crypto/weather: compare real data to the market price
+4. For sports: consider team quality, home/away, matchups, momentum
 
-Return a JSON array of picks:
+REQUIREMENT: Include at least 1 NO bet if any favorite is priced above 55%.
+
+Return a JSON array:
 {
   "ticker": "from market data",
   "title": "clean title",
   "recommendation": "STRONG_BUY" | "BUY",
-  "confidence": 55-85 (be calibrated — 70+ means very confident),
+  "confidence": 55-85,
   "category": "category string",
-  "event_description": "2-3 sentences of context",
-  "the_bet": "Plain English: 'Betting NO — that [X] won't happen because [reason]'",
-  "how_you_profit": "Exact math with real numbers from market data",
-  "summary": "100-200 words explaining your edge. For crypto/weather: start with real data. For sports: structural reasoning.",
+  "event_description": "2-3 sentences",
+  "the_bet": "Plain English: 'Betting [YES/NO] — [what you're betting and why]'",
+  "how_you_profit": "Math with real numbers",
+  "summary": "100-200 words explaining your edge",
   "math_breakdown": {
     "implied_prob_pct": "entry_price * 100",
     "estimated_true_prob_pct": "your honest estimate",
-    "edge_pct": "estimated minus implied",
+    "edge_pct": "estimated minus implied (for NO: 100-estimated vs 100-implied)",
     "cost_per_contract": "entry_price",
     "payout_if_win": 1.00,
     "profit_if_win": "1.00 - entry_price",
@@ -161,11 +190,9 @@ Return a JSON array of picks:
   "cons": ["2-3 real risks"],
   "risk_level": "LOW" | "MEDIUM" | "HIGH",
   "target_position": "YES" | "NO",
-  "entry_price": "yes_ask for YES bets, no_ask for NO bets",
+  "entry_price": "yes_ask for YES bets, no_ask for NO bets (MUST match market data)",
   "potential_return_pct": "(1.00 - entry_price) / entry_price * 100"
-}
-
-Return a JSON array. Include [] only if genuinely none of the markets have value.`;
+}`;
 
   const response = await chatCompletion([
     { role: "system", content: systemPrompt },

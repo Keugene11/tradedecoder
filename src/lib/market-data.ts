@@ -191,9 +191,136 @@ export function extractCoinFromTicker(ticker: string): string | null {
   return match ? match[1] : null;
 }
 
+// ===== NBA DATA (free, no auth) =====
+
+interface NBATeamStanding {
+  team: string;
+  abbreviation: string;
+  wins: number;
+  losses: number;
+  win_pct: number;
+  streak: string;
+  last_10: string;
+  home_record: string;
+  away_record: string;
+}
+
+// Map Kalshi team codes to NBA team abbreviations
+const NBA_TEAM_MAP: Record<string, string> = {
+  ATL: "Atlanta Hawks", BOS: "Boston Celtics", BKN: "Brooklyn Nets", CHA: "Charlotte Hornets",
+  CHI: "Chicago Bulls", CLE: "Cleveland Cavaliers", DAL: "Dallas Mavericks", DEN: "Denver Nuggets",
+  DET: "Detroit Pistons", GSW: "Golden State Warriors", HOU: "Houston Rockets", IND: "Indiana Pacers",
+  LAC: "LA Clippers", LAL: "Los Angeles Lakers", MEM: "Memphis Grizzlies", MIA: "Miami Heat",
+  MIL: "Milwaukee Bucks", MIN: "Minnesota Timberwolves", NOP: "New Orleans Pelicans", NYK: "New York Knicks",
+  OKC: "Oklahoma City Thunder", ORL: "Orlando Magic", PHI: "Philadelphia 76ers", PHX: "Phoenix Suns",
+  POR: "Portland Trail Blazers", SAC: "Sacramento Kings", SAS: "San Antonio Spurs", TOR: "Toronto Raptors",
+  UTA: "Utah Jazz", WAS: "Washington Wizards",
+};
+
+const NHL_TEAM_MAP: Record<string, string> = {
+  ANA: "Anaheim Ducks", ARI: "Arizona Coyotes", BOS: "Boston Bruins", BUF: "Buffalo Sabres",
+  CGY: "Calgary Flames", CAR: "Carolina Hurricanes", CHI: "Chicago Blackhawks", COL: "Colorado Avalanche",
+  CBJ: "Columbus Blue Jackets", DAL: "Dallas Stars", DET: "Detroit Red Wings", EDM: "Edmonton Oilers",
+  FLA: "Florida Panthers", LAK: "Los Angeles Kings", MIN: "Minnesota Wild", MTL: "Montreal Canadiens",
+  NSH: "Nashville Predators", NJD: "New Jersey Devils", NYI: "New York Islanders", NYR: "New York Rangers",
+  OTT: "Ottawa Senators", PHI: "Philadelphia Flyers", PIT: "Pittsburgh Penguins", SJS: "San Jose Sharks",
+  SEA: "Seattle Kraken", STL: "St. Louis Blues", TBL: "Tampa Bay Lightning", TOR: "Toronto Maple Leafs",
+  VAN: "Vancouver Canucks", VGK: "Vegas Golden Knights", WPG: "Winnipeg Jets", WSH: "Washington Capitals",
+};
+
+export async function fetchNBAStandings(): Promise<NBATeamStanding[]> {
+  try {
+    const res = await fetch(
+      "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json",
+      { cache: "no-store" }
+    );
+    if (!res.ok) return [];
+    // Fallback: use balldontlie or another free API
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Extract NBA team codes from a market ticker.
+ * e.g. KXNBAGAME-26MAR10MINLAL -> ["MIN", "LAL"]
+ *      KXNBASPREAD-26MAR09DENOKC -> ["DEN", "OKC"]
+ */
+export function extractNBATeamsFromTicker(ticker: string): string[] {
+  // Match the team codes after the date portion
+  const match = ticker.match(/KX(?:NBA|NBAGAME|NBASPREAD|NBA1H)\w*-\d{2}[A-Z]{3}\d{2}([A-Z]{3})([A-Z]{3})/);
+  if (!match) return [];
+  return [match[1], match[2]];
+}
+
+/**
+ * Extract NHL team codes from a market ticker.
+ */
+export function extractNHLTeamsFromTicker(ticker: string): string[] {
+  const match = ticker.match(/KX(?:NHL)\w*-\d{2}[A-Z]{3}\d{2}([A-Z]{3})([A-Z]{3})/);
+  if (!match) return [];
+  return [match[1], match[2]];
+}
+
 export interface MarketContext {
   crypto?: CryptoPrice[];
   weather?: WeatherForecast;
+}
+
+/**
+ * Fetch NBA standings from balldontlie API (free, no auth).
+ * Returns team records for context.
+ */
+async function fetchNBATeamRecords(teamCodes: string[]): Promise<string[]> {
+  if (teamCodes.length === 0) return [];
+  const lines: string[] = [];
+
+  try {
+    // Use the NBA CDN for standings data (free, no auth)
+    const res = await fetch(
+      "https://cdn.nba.com/static/json/liveData/standings/standings.json",
+      { cache: "no-store" }
+    );
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    const teams = data?.standings?.entries || data?.league?.standard?.teams || [];
+
+    if (teams.length === 0) return [];
+
+    lines.push("=== NBA STANDINGS (live data) ===");
+    for (const entry of teams) {
+      const teamCity = entry.teamCity || "";
+      const teamName = entry.teamName || "";
+      const fullName = `${teamCity} ${teamName}`;
+      const abbrev = entry.teamAbbreviation || entry.team?.abbreviation || "";
+
+      // Check if this team is relevant to our markets
+      const isRelevant = teamCodes.some(
+        (code) =>
+          abbrev === code ||
+          fullName.toLowerCase().includes(code.toLowerCase()) ||
+          (NBA_TEAM_MAP[code] && NBA_TEAM_MAP[code].toLowerCase().includes(teamName.toLowerCase()))
+      );
+
+      if (isRelevant) {
+        const wins = entry.wins || entry.w || 0;
+        const losses = entry.losses || entry.l || 0;
+        const streak = entry.streak || entry.currentStreak || "";
+        const home = entry.homeRecord || `${entry.homeWins || "?"}-${entry.homeLosses || "?"}`;
+        const away = entry.awayRecord || `${entry.awayWins || "?"}-${entry.awayLosses || "?"}`;
+        lines.push(
+          `${fullName} (${abbrev}): ${wins}-${losses} | Home: ${home} | Away: ${away}${streak ? ` | Streak: ${streak}` : ""}`
+        );
+      }
+    }
+    lines.push("");
+  } catch {
+    // Silently fail — sports data is supplementary
+  }
+
+  return lines;
 }
 
 /**
@@ -223,9 +350,17 @@ export async function buildMarketContext(
     }
   }
 
+  // Collect NBA teams
+  const nbaTeams = new Set<string>();
+  for (const t of [...tickers, ...eventTickers]) {
+    const teams = extractNBATeamsFromTicker(t);
+    teams.forEach((team) => nbaTeams.add(team));
+  }
+
   // Fetch in parallel
-  const [cryptoPrices, ...weatherForecasts] = await Promise.all([
+  const [cryptoPrices, nbaLines, ...weatherForecasts] = await Promise.all([
     coins.size > 0 ? fetchCryptoPrices([...coins]) : Promise.resolve([]),
+    nbaTeams.size > 0 ? fetchNBATeamRecords([...nbaTeams]) : Promise.resolve([]),
     ...Array.from(weatherRequests.entries()).map(([city, date]) =>
       fetchWeatherForecast(city, date)
     ),
@@ -251,6 +386,10 @@ export async function buildMarketContext(
       );
     }
     lines.push("");
+  }
+
+  if (nbaLines.length > 0) {
+    lines.push(...nbaLines);
   }
 
   return lines.join("\n");
