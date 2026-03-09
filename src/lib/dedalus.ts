@@ -1,4 +1,5 @@
 import type { KalshiMarket } from "./kalshi";
+import { buildMarketContext } from "./market-data";
 
 const DEDALUS_API_URL = "https://api.dedaluslabs.ai";
 
@@ -100,17 +101,24 @@ export async function analyzeMarkets(
     };
   });
 
+  // Fetch real-time data for crypto and weather markets
+  const tickers = marketSummaries.map((m) => m.ticker);
+  const eventTickers = marketSummaries.map((m) => m.event_ticker);
+  const realTimeContext = await buildMarketContext(tickers, eventTickers);
+
   const systemPrompt = `You are an elite prediction market trader. Your job is to find mispriced bets on Kalshi.
 
 HONESTY RULES — READ CAREFULLY:
-1. You do NOT have access to live data, real-time scores, current rosters, injury reports, or live prices beyond what is provided in the market data. DO NOT fabricate specific statistics like "averaging 58.3 points" or "28-14 at home" — you are making those numbers up and the user will notice.
-2. Instead of fake stats, base your analysis on:
+1. For CRYPTO and WEATHER markets, you have REAL-TIME DATA provided below — USE IT. Compare the actual current price/forecast against the market's strike price to make informed decisions.
+2. For SPORTS and OTHER markets: you do NOT have live data. DO NOT fabricate specific statistics like "averaging 58.3 points" or "28-14 at home." Instead use structural reasoning, general knowledge, and odds analysis.
+3. Base your analysis on:
+   - REAL DATA: When provided (crypto prices, weather forecasts), use it as the foundation of your analysis. E.g., if BTC is at $65,200 and the market asks "will BTC be above $66,999?", that's a $1,800 move needed — calculate the probability based on recent volatility.
    - STRUCTURAL REASONING: What factors logically favor one outcome? (home court, rest days, team quality tier, matchup dynamics)
    - MARKET STRUCTURE: Is the price in a range where edges tend to exist? Is the spread tight or wide? Is volume high (consensus) or low (potential mispricing)?
-   - CATEGORY KNOWLEDGE: General knowledge about teams, players, leagues, economic indicators — things you actually know. State what you know vs. what you're uncertain about.
-   - ODDS ANALYSIS: Is the risk/reward mathematically attractive? What does the price imply and does that feel right?
-3. If you're uncertain, say so. "The market prices this at 53% which seems roughly fair" is infinitely better than fabricating stats to justify a position.
-4. Be CONCISE and SHARP. No filler sentences like "Market volatility could impact pricing" or "Unexpected injuries could change dynamics." Every sentence should add real information.
+   - CATEGORY KNOWLEDGE: General knowledge about teams, players, leagues — things you actually know.
+   - ODDS ANALYSIS: Is the risk/reward mathematically attractive?
+4. If you're uncertain, say so. "The market prices this at 53% which seems roughly fair" is better than fabricating stats.
+5. Be CONCISE and SHARP. No filler. Every sentence should add real information.
 
 PRICING RULES:
 - NEVER recommend bets priced above $0.85. Those are terrible risk/reward.
@@ -129,7 +137,7 @@ You MUST respond with valid JSON only. No markdown, no code blocks.`;
 
   const userPrompt = `Analyze these markets. Return ONLY bets worth placing (STRONG_BUY or BUY). Skip markets where you don't see a real edge — returning 2-3 great picks is better than 5 mediocre ones.
 
-Markets:
+${realTimeContext ? `REAL-TIME DATA (use this for your analysis — these are actual current values, not estimates):\n${realTimeContext}\n` : ""}Markets:
 ${JSON.stringify(marketSummaries, null, 2)}
 
 For each bet, return this JSON structure:
@@ -190,12 +198,18 @@ export async function analyzeSpecificMarket(
     ? (new Date(market.close_time).getTime() - Date.now()) / (1000 * 60 * 60)
     : null;
 
+  // Fetch real-time data if applicable
+  const realTimeContext = await buildMarketContext(
+    [market.ticker],
+    [market.event_ticker]
+  );
+
   const systemPrompt = `You are an elite prediction market analyst. Analyze this Kalshi market honestly.
 
-HONESTY RULES:
-- Do NOT fabricate statistics, records, or numbers you don't actually know. No fake "averaging 58.3 points" or "28-14 record."
-- Use structural reasoning, general knowledge, odds analysis, and market structure instead.
-- If uncertain, say so. Honest uncertainty is more valuable than confident bullshit.
+RULES:
+- For CRYPTO/WEATHER: You have REAL-TIME DATA below. Use it as the primary basis for your analysis.
+- For SPORTS/OTHER: Do NOT fabricate statistics. Use structural reasoning and general knowledge.
+- If uncertain, say so. Honest uncertainty beats confident bullshit.
 - Match analysis depth to the resolution timeframe (${hoursToClose ? Math.round(hoursToClose) + ' hours' : 'unknown'} until close).
 - Be concise. No filler sentences.
 
@@ -204,7 +218,7 @@ You MUST respond with valid JSON only.`;
 
   const userPrompt = `Analyze this market. Recommend STRONG_BUY, BUY, or HOLD.
 
-Ticker: ${market.ticker}
+${realTimeContext ? `REAL-TIME DATA:\n${realTimeContext}\n` : ""}Ticker: ${market.ticker}
 Title: ${market.title}
 YES bid/ask: $${market.yes_bid_dollars} / $${market.yes_ask_dollars}
 NO bid/ask: $${market.no_bid_dollars} / $${market.no_ask_dollars}
