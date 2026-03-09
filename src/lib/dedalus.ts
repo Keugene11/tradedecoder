@@ -183,9 +183,11 @@ Return a JSON array. Empty array [] is acceptable if nothing looks good.`;
     if (cleaned.startsWith("```")) {
       cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
     }
-    return JSON.parse(cleaned);
+    const parsed = JSON.parse(cleaned);
+    console.log(`[analyzeMarkets] AI returned ${Array.isArray(parsed) ? parsed.length : 'non-array'} recommendations from ${markets.length} markets`);
+    return parsed;
   } catch {
-    console.error("Failed to parse AI response:", response);
+    console.error("Failed to parse AI response (first 500 chars):", response.substring(0, 500));
     return [];
   }
 }
