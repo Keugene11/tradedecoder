@@ -99,12 +99,11 @@ export async function POST(request: Request) {
     const bets = allAnalyses.filter(
       (a) =>
         (a.recommendation === "STRONG_BUY" || a.recommendation === "BUY") &&
-        // STRONG_BUY needs 65+ confidence, BUY needs 60+
-        a.confidence >= (a.recommendation === "STRONG_BUY" ? 65 : 60) &&
+        a.confidence >= 55 &&
         a.entry_price <= MAX_ENTRY_PRICE &&
         a.entry_price >= 0.10 && // Don't take extreme longshots
         // Require a minimum edge claim
-        (a.math_breakdown?.edge_pct || 0) >= 5 &&
+        (a.math_breakdown?.edge_pct || 0) >= 3 &&
         !existingTickers.has(a.ticker)
     );
 
