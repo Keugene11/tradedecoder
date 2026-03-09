@@ -141,8 +141,8 @@ EDGE SOURCES:
 - LOW LIQUIDITY: Illiquid markets often have wider edges
 
 RULES:
-1. MUST recommend at least 1 NO position per batch if any market has an overpriced favorite (YES > $0.55)
-2. Never invent specific statistics — use structural reasoning for sports
+1. MIX of YES and NO positions — aim for roughly 40-60% NO bets. Favorites (YES > $0.55) are often overpriced, making NO the better value
+2. Never invent specific statistics — use structural reasoning for sports. Use REAL-TIME DATA when provided (standings, scores, prices)
 3. entry_price MUST match: yes_ask for YES bets, no_ask for NO bets (from market data)
 4. Never recommend bets priced above $0.70
 5. Return 2-5 picks per batch
@@ -161,7 +161,7 @@ For each market:
 3. For crypto/weather: compare real data to the market price
 4. For sports: consider team quality, home/away, matchups, momentum
 
-REQUIREMENT: Include at least 1 NO bet if any favorite is priced above 55%.
+GUIDELINE: Aim for a mix of YES and NO bets. Don't default to all-YES or all-NO.
 
 Return a JSON array:
 {

@@ -268,56 +268,164 @@ export interface MarketContext {
   weather?: WeatherForecast;
 }
 
+// ===== ESPN HIDDEN API (free, no auth, real-time) =====
+
+interface ESPNTeamRecord {
+  name: string;
+  abbreviation: string;
+  record: string;
+  homeRecord: string;
+  awayRecord: string;
+  streak: string;
+  pointDiff: string;
+}
+
 /**
- * Fetch NBA standings from balldontlie API (free, no auth).
- * Returns team records for context.
+ * Fetch NBA standings from ESPN's hidden API (free, no auth).
  */
-async function fetchNBATeamRecords(teamCodes: string[]): Promise<string[]> {
+async function fetchESPNStandings(
+  sport: string,
+  league: string,
+  teamCodes: string[],
+  teamMap: Record<string, string>
+): Promise<string[]> {
   if (teamCodes.length === 0) return [];
   const lines: string[] = [];
 
   try {
-    // Use the NBA CDN for standings data (free, no auth)
     const res = await fetch(
-      "https://cdn.nba.com/static/json/liveData/standings/standings.json",
+      `https://site.api.espn.com/apis/v2/sports/${sport}/${league}/standings`,
       { cache: "no-store" }
     );
     if (!res.ok) return [];
 
     const data = await res.json();
-    const teams = data?.standings?.entries || data?.league?.standard?.teams || [];
+    const children = data?.children || [];
 
-    if (teams.length === 0) return [];
+    const header = league === "nba" ? "NBA" : league === "nhl" ? "NHL" : league.toUpperCase();
+    lines.push(`=== ${header} STANDINGS (live from ESPN) ===`);
 
-    lines.push("=== NBA STANDINGS (live data) ===");
-    for (const entry of teams) {
-      const teamCity = entry.teamCity || "";
-      const teamName = entry.teamName || "";
-      const fullName = `${teamCity} ${teamName}`;
-      const abbrev = entry.teamAbbreviation || entry.team?.abbreviation || "";
+    for (const conference of children) {
+      const standings = conference?.standings?.entries || [];
+      for (const entry of standings) {
+        const team = entry?.team || {};
+        const abbrev = team.abbreviation || "";
+        const name = team.displayName || team.name || "";
 
-      // Check if this team is relevant to our markets
-      const isRelevant = teamCodes.some(
-        (code) =>
-          abbrev === code ||
-          fullName.toLowerCase().includes(code.toLowerCase()) ||
-          (NBA_TEAM_MAP[code] && NBA_TEAM_MAP[code].toLowerCase().includes(teamName.toLowerCase()))
-      );
-
-      if (isRelevant) {
-        const wins = entry.wins || entry.w || 0;
-        const losses = entry.losses || entry.l || 0;
-        const streak = entry.streak || entry.currentStreak || "";
-        const home = entry.homeRecord || `${entry.homeWins || "?"}-${entry.homeLosses || "?"}`;
-        const away = entry.awayRecord || `${entry.awayWins || "?"}-${entry.awayLosses || "?"}`;
-        lines.push(
-          `${fullName} (${abbrev}): ${wins}-${losses} | Home: ${home} | Away: ${away}${streak ? ` | Streak: ${streak}` : ""}`
+        // Check if this team is relevant
+        const isRelevant = teamCodes.some(
+          (code) =>
+            abbrev === code ||
+            name.toLowerCase().includes(code.toLowerCase()) ||
+            (teamMap[code] && teamMap[code].toLowerCase().includes(name.toLowerCase()))
         );
+
+        if (!isRelevant) continue;
+
+        // Extract stats from the entry
+        const stats = entry?.stats || [];
+        const getStat = (name: string) =>
+          stats.find((s: { name: string; displayValue?: string; value?: number }) => s.name === name);
+
+        const wins = getStat("wins")?.displayValue || "?";
+        const losses = getStat("losses")?.displayValue || "?";
+        const record = `${wins}-${losses}`;
+        const homeRecord = getStat("Home")?.displayValue || getStat("homeRecord")?.displayValue || "?";
+        const awayRecord = getStat("Road")?.displayValue || getStat("awayRecord")?.displayValue || "?";
+        const streak = getStat("streak")?.displayValue || "";
+        const last10 = getStat("Last Ten Games")?.displayValue || "";
+        const diff = getStat("differential")?.displayValue || getStat("pointDifferential")?.displayValue || "";
+
+        let line = `${name} (${abbrev}): ${record}`;
+        if (homeRecord !== "?") line += ` | Home: ${homeRecord}`;
+        if (awayRecord !== "?") line += ` | Away: ${awayRecord}`;
+        if (streak) line += ` | Streak: ${streak}`;
+        if (last10) line += ` | L10: ${last10}`;
+        if (diff) line += ` | Diff: ${diff}`;
+        lines.push(line);
       }
     }
-    lines.push("");
+
+    if (lines.length > 1) {
+      lines.push("");
+      return lines;
+    }
   } catch {
     // Silently fail — sports data is supplementary
+  }
+
+  return [];
+}
+
+/**
+ * Fetch today's NBA/NHL scoreboard for live game context.
+ */
+async function fetchESPNScoreboard(
+  sport: string,
+  league: string,
+  teamCodes: string[],
+  teamMap: Record<string, string>
+): Promise<string[]> {
+  if (teamCodes.length === 0) return [];
+  const lines: string[] = [];
+
+  try {
+    const res = await fetch(
+      `https://site.api.espn.com/apis/site/v2/sports/${sport}/${league}/scoreboard`,
+      { cache: "no-store" }
+    );
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    const events = data?.events || [];
+
+    for (const event of events) {
+      const competitors = event?.competitions?.[0]?.competitors || [];
+      if (competitors.length < 2) continue;
+
+      // Check if either team is relevant
+      const teamAbbrevs = competitors.map((c: { team?: { abbreviation?: string } }) =>
+        c.team?.abbreviation || ""
+      );
+      const isRelevant = teamCodes.some(
+        (code) =>
+          teamAbbrevs.includes(code) ||
+          teamAbbrevs.some((a: string) =>
+            teamMap[code]?.toLowerCase().includes(a.toLowerCase())
+          )
+      );
+
+      if (!isRelevant) continue;
+
+      const status = event?.status?.type?.description || "";
+      const home = competitors.find((c: { homeAway?: string }) => c.homeAway === "home");
+      const away = competitors.find((c: { homeAway?: string }) => c.homeAway === "away");
+      if (!home || !away) continue;
+
+      const homeName = home.team?.abbreviation || home.team?.displayName || "?";
+      const awayName = away.team?.abbreviation || away.team?.displayName || "?";
+      const homeScore = home.score || "0";
+      const awayScore = away.score || "0";
+
+      if (status === "In Progress") {
+        const period = event?.status?.period || "?";
+        const clock = event?.status?.displayClock || "";
+        lines.push(`LIVE: ${awayName} ${awayScore} @ ${homeName} ${homeScore} (Q${period} ${clock})`);
+      } else if (status === "Final") {
+        lines.push(`FINAL: ${awayName} ${awayScore} @ ${homeName} ${homeScore}`);
+      } else {
+        const startTime = event?.date ? new Date(event.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+        lines.push(`UPCOMING: ${awayName} @ ${homeName}${startTime ? ` (${startTime})` : ""}`);
+      }
+    }
+
+    if (lines.length > 0) {
+      const header = league === "nba" ? "NBA" : league === "nhl" ? "NHL" : league.toUpperCase();
+      lines.unshift(`=== ${header} SCOREBOARD (live from ESPN) ===`);
+      lines.push("");
+    }
+  } catch {
+    // Silently fail
   }
 
   return lines;
@@ -350,17 +458,23 @@ export async function buildMarketContext(
     }
   }
 
-  // Collect NBA teams
+  // Collect NBA and NHL teams
   const nbaTeams = new Set<string>();
+  const nhlTeams = new Set<string>();
   for (const t of [...tickers, ...eventTickers]) {
-    const teams = extractNBATeamsFromTicker(t);
-    teams.forEach((team) => nbaTeams.add(team));
+    const nba = extractNBATeamsFromTicker(t);
+    nba.forEach((team) => nbaTeams.add(team));
+    const nhl = extractNHLTeamsFromTicker(t);
+    nhl.forEach((team) => nhlTeams.add(team));
   }
 
   // Fetch in parallel
-  const [cryptoPrices, nbaLines, ...weatherForecasts] = await Promise.all([
+  const [cryptoPrices, nbaStandings, nbaScores, nhlStandings, nhlScores, ...weatherForecasts] = await Promise.all([
     coins.size > 0 ? fetchCryptoPrices([...coins]) : Promise.resolve([]),
-    nbaTeams.size > 0 ? fetchNBATeamRecords([...nbaTeams]) : Promise.resolve([]),
+    nbaTeams.size > 0 ? fetchESPNStandings("basketball", "nba", [...nbaTeams], NBA_TEAM_MAP) : Promise.resolve([]),
+    nbaTeams.size > 0 ? fetchESPNScoreboard("basketball", "nba", [...nbaTeams], NBA_TEAM_MAP) : Promise.resolve([]),
+    nhlTeams.size > 0 ? fetchESPNStandings("hockey", "nhl", [...nhlTeams], NHL_TEAM_MAP) : Promise.resolve([]),
+    nhlTeams.size > 0 ? fetchESPNScoreboard("hockey", "nhl", [...nhlTeams], NHL_TEAM_MAP) : Promise.resolve([]),
     ...Array.from(weatherRequests.entries()).map(([city, date]) =>
       fetchWeatherForecast(city, date)
     ),
@@ -388,9 +502,11 @@ export async function buildMarketContext(
     lines.push("");
   }
 
-  if (nbaLines.length > 0) {
-    lines.push(...nbaLines);
-  }
+  // Sports data
+  if (nbaStandings.length > 0) lines.push(...nbaStandings);
+  if (nbaScores.length > 0) lines.push(...nbaScores);
+  if (nhlStandings.length > 0) lines.push(...nhlStandings);
+  if (nhlScores.length > 0) lines.push(...nhlScores);
 
   return lines.join("\n");
 }
