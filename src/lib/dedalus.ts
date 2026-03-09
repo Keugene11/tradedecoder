@@ -101,59 +101,59 @@ export async function analyzeMarkets(
     };
   });
 
-  // Fetch real-time data for crypto and weather markets
   const tickers = marketSummaries.map((m) => m.ticker);
   const eventTickers = marketSummaries.map((m) => m.event_ticker);
   const realTimeContext = await buildMarketContext(tickers, eventTickers);
 
-  const systemPrompt = `You are an elite prediction market trader. Your job is to find mispriced bets on Kalshi.
+  const systemPrompt = `You are a disciplined prediction market trader. You make money by being SELECTIVE — only betting when you have a genuine, data-backed edge. Most markets are efficiently priced; your job is to find the few that aren't.
 
-HONESTY RULES — READ CAREFULLY:
-1. For CRYPTO and WEATHER markets, you have REAL-TIME DATA provided below — USE IT. Compare the actual current price/forecast against the market's strike price to make informed decisions.
-2. For SPORTS and OTHER markets: you do NOT have live data. DO NOT fabricate specific statistics like "averaging 58.3 points" or "28-14 at home." Instead use structural reasoning, general knowledge, and odds analysis.
-3. Base your analysis on:
-   - REAL DATA: When provided (crypto prices, weather forecasts), use it as the foundation of your analysis. E.g., if BTC is at $65,200 and the market asks "will BTC be above $66,999?", that's a $1,800 move needed — calculate the probability based on recent volatility.
-   - STRUCTURAL REASONING: What factors logically favor one outcome? (home court, rest days, team quality tier, matchup dynamics)
-   - MARKET STRUCTURE: Is the price in a range where edges tend to exist? Is the spread tight or wide? Is volume high (consensus) or low (potential mispricing)?
-   - CATEGORY KNOWLEDGE: General knowledge about teams, players, leagues — things you actually know.
-   - ODDS ANALYSIS: Is the risk/reward mathematically attractive?
-4. If you're uncertain, say so. "The market prices this at 53% which seems roughly fair" is better than fabricating stats.
-5. Be CONCISE and SHARP. No filler. Every sentence should add real information.
+WHERE EDGES ACTUALLY COME FROM (ranked by reliability):
+1. DATA MISMATCH: You have real-time data (crypto prices, weather forecasts) that contradicts what the market implies. E.g., forecast says 70°F but market prices "above 72°F" at 50% — that's a clear NO bet.
+2. STRUCTURAL MISPRICING: The market is pricing something wrong due to a structural factor. E.g., a heavy favorite in a sport priced at only 55% because the market is illiquid. Or a NO position where the crowd is irrationally optimistic.
+3. INFORMATION ASYMMETRY: You know something the market hasn't priced in yet.
 
-PRICING RULES:
-- NEVER recommend bets priced above $0.85. Those are terrible risk/reward.
-- Best bets: $0.25-$0.65 range where you see genuine mispricing.
-- The entry_price MUST match the yes_ask (to buy YES) or no_ask (to buy NO) from the market data provided. Do NOT invent prices.
+WHERE EDGES DO NOT COME FROM:
+- "This team is generally good" — the market already knows that
+- "I feel like 53% is too low" without specific reasoning — that's gut feeling, not edge
+- Esports/obscure markets where you have zero knowledge — skip these entirely
+- Any sport/match where you can't articulate WHY the market is wrong
 
-TIME HORIZON — check hours_until_close for each market:
-- <6 hours: Only immediate factors matter. Who's playing RIGHT NOW? Current conditions only.
-- 6-24 hours: Today's event. Focus on the specific matchup, today's conditions, known lineups.
-- 1-7 days: Near-term. What specific events/catalysts are coming?
-- 7+ days: Broader analysis is fine, but anchor to specific upcoming events.
+CRITICAL RULES:
+1. CONSIDER BOTH SIDES: For every market, evaluate BOTH yes and no. If YES is priced at $0.55, then NO costs $0.45. Which side has the edge? Often the NO side is the better bet — the crowd tends to be overconfident on favorites.
+2. SKIP MOST MARKETS: If you can't articulate a specific, concrete reason why the market is mispriced, SKIP IT. Returning 1-2 high-conviction picks is better than 5 coin flips. It is perfectly fine to return an empty array [].
+3. DATA-BACKED ONLY: For crypto/weather, you MUST compare real-time data against the strike price and calculate the actual probability. For sports without real data, ONLY bet if you have strong general knowledge about the matchup.
+4. NO FABRICATED STATS: Never invent specific numbers. Use structural reasoning.
+5. ENTRY PRICE: Must match yes_ask (for YES) or no_ask (for NO) from market data.
+6. MAX PRICE: Never recommend a bet priced above $0.70.
 
 Current time: ${now}
-
 You MUST respond with valid JSON only. No markdown, no code blocks.`;
 
-  const userPrompt = `Analyze these markets. Return ONLY bets worth placing (STRONG_BUY or BUY). Skip markets where you don't see a real edge — returning 2-3 great picks is better than 5 mediocre ones.
+  const userPrompt = `Find genuinely mispriced bets in these markets. Be EXTREMELY selective — skip anything where you don't have a real edge.
 
-${realTimeContext ? `REAL-TIME DATA (use this for your analysis — these are actual current values, not estimates):\n${realTimeContext}\n` : ""}Markets:
+${realTimeContext ? `REAL-TIME DATA (actual current values — use these to calculate probabilities):\n${realTimeContext}\n` : ""}Markets:
 ${JSON.stringify(marketSummaries, null, 2)}
 
-For each bet, return this JSON structure:
+IMPORTANT — for each market, ask yourself:
+1. Do I have real data that contradicts the market price? (crypto price vs strike, weather forecast vs threshold)
+2. Can I articulate a SPECIFIC reason the market is wrong, beyond "I think so"?
+3. Have I considered the NO side? Maybe NO is the better bet.
+If the answer to all three is no, SKIP the market.
+
+For bets worth placing, return this JSON:
 {
   "ticker": "from market data",
-  "title": "clean human-readable title, e.g. 'Pacers vs Kings' or 'Will gas exceed $4.40?'",
+  "title": "clean title",
   "recommendation": "STRONG_BUY" | "BUY",
-  "confidence": 55-85 (be honest — 85+ means you're extremely sure, don't inflate),
-  "category": "NBA Basketball" | "NHL Hockey" | "Tennis" | "Soccer" | "Esports" | "Economics" | "Politics" | etc.,
-  "event_description": "2-3 sentences. What is this event? Who's involved? When does it happen?",
-  "the_bet": "1-2 plain English sentences. 'You're betting that X will beat Y tonight.' Be specific.",
-  "how_you_profit": "Exact math. 'Buy YES at $0.53. If they win, you get $1.00 — profit of $0.47 per contract (88.7% return). If they lose, you lose $0.53.'",
-  "summary": "THIS IS THE KEY FIELD. Write 150-250 words of HONEST analysis. Structure: (1) What's the matchup/event and why it matters. (2) 2-4 REAL arguments for your position — use structural reasoning, general knowledge, and odds analysis. DO NOT make up specific statistics you don't actually know. Instead say things like 'Team X is generally the stronger squad this season' or 'At this price point, the market is implying only a 45% chance which seems too low for a home favorite.' (3) Why is the market wrong? What structural factor is it underweighting? (4) What's the honest risk? Every sentence should earn its place — no filler.",
+  "confidence": 60-85 (STRONG_BUY requires 70+, be honest),
+  "category": "category string",
+  "event_description": "2-3 sentences of context",
+  "the_bet": "Plain English: 'Betting NO — that BTC will NOT exceed $67,999 in the next 20 hours, since it's currently at $66,300 and would need a 2.5% jump.'",
+  "how_you_profit": "Exact math with real numbers from market data",
+  "summary": "150-250 words. For crypto/weather: START with the real data and calculate the probability. For sports: structural reasoning only. Explain specifically WHY the market is wrong.",
   "math_breakdown": {
     "implied_prob_pct": "entry_price * 100",
-    "estimated_true_prob_pct": "your honest estimate (don't inflate to justify the bet)",
+    "estimated_true_prob_pct": "honest estimate backed by data or reasoning",
     "edge_pct": "estimated minus implied",
     "cost_per_contract": "entry_price",
     "payout_if_win": 1.00,
@@ -161,17 +161,17 @@ For each bet, return this JSON structure:
     "loss_if_lose": "entry_price",
     "expected_value_per_dollar": "(est_prob * 1.00 - cost) / cost",
     "break_even_prob_pct": "entry_price * 100",
-    "kelly_fraction_pct": "keep between 1-15%. If you're calculating >15%, cap it. We use quarter-Kelly anyway."
+    "kelly_fraction_pct": "1-10% range, be conservative"
   },
-  "pros": ["3-5 strings. Each 1-3 sentences of REAL reasoning. No fabricated stats. Good example: 'Home court advantage is significant in this matchup — the home team in this series has won the last several meetings, and crowd energy in close games tends to favor the home side.' Bad example: 'Team X is 28-14 at home with a +7.2 point differential' (you made that up)."],
-  "cons": ["3-4 strings. Real risks, not generic filler. Good: 'This team has been inconsistent on the road and could be fatigued from a back-to-back.' Bad: 'Market volatility could affect pricing.'"],
+  "pros": ["2-4 concrete reasons backed by data or structural logic"],
+  "cons": ["2-3 real risks that could make this bet lose"],
   "risk_level": "LOW" | "MEDIUM" | "HIGH",
-  "target_position": "YES" | "NO",
-  "entry_price": "MUST match yes_ask or no_ask from market data",
-  "potential_return_pct": "(1.00 - entry_price) / entry_price * 100 for YES bets"
+  "target_position": "YES" | "NO" (seriously consider NO positions!),
+  "entry_price": "yes_ask for YES bets, no_ask for NO bets",
+  "potential_return_pct": "(1.00 - entry_price) / entry_price * 100"
 }
 
-Return a JSON array. Quality over quantity — 3-5 genuinely good picks.`;
+Return a JSON array. Empty array [] is acceptable if nothing looks good.`;
 
   const response = await chatCompletion([
     { role: "system", content: systemPrompt },
@@ -198,25 +198,25 @@ export async function analyzeSpecificMarket(
     ? (new Date(market.close_time).getTime() - Date.now()) / (1000 * 60 * 60)
     : null;
 
-  // Fetch real-time data if applicable
   const realTimeContext = await buildMarketContext(
     [market.ticker],
     [market.event_ticker]
   );
 
-  const systemPrompt = `You are an elite prediction market analyst. Analyze this Kalshi market honestly.
+  const systemPrompt = `You are a disciplined prediction market analyst. Only recommend bets with a genuine, data-backed edge.
 
 RULES:
-- For CRYPTO/WEATHER: You have REAL-TIME DATA below. Use it as the primary basis for your analysis.
-- For SPORTS/OTHER: Do NOT fabricate statistics. Use structural reasoning and general knowledge.
-- If uncertain, say so. Honest uncertainty beats confident bullshit.
-- Match analysis depth to the resolution timeframe (${hoursToClose ? Math.round(hoursToClose) + ' hours' : 'unknown'} until close).
-- Be concise. No filler sentences.
+- For CRYPTO/WEATHER: You have REAL-TIME DATA. Compare it against the strike price to calculate actual probability.
+- For SPORTS/OTHER: Do NOT fabricate statistics. Only recommend if you have strong structural reasoning.
+- ALWAYS consider both YES and NO sides. Often NO is the better bet.
+- If the market seems fairly priced, recommend HOLD. Most markets ARE fairly priced.
+- Match analysis to timeframe (${hoursToClose ? Math.round(hoursToClose) + 'h' : 'unknown'} until close).
+- No filler sentences. Every claim needs backing.
 
 Current time: ${now}
 You MUST respond with valid JSON only.`;
 
-  const userPrompt = `Analyze this market. Recommend STRONG_BUY, BUY, or HOLD.
+  const userPrompt = `Analyze this market. Consider BOTH sides (YES and NO). Recommend STRONG_BUY, BUY, or HOLD.
 
 ${realTimeContext ? `REAL-TIME DATA:\n${realTimeContext}\n` : ""}Ticker: ${market.ticker}
 Title: ${market.title}
@@ -233,10 +233,10 @@ Return a single JSON object:
   "ticker": "${market.ticker}",
   "title": "${market.title}",
   "recommendation": "STRONG_BUY" | "BUY" | "HOLD",
-  "confidence": number (0-100, be honest),
-  "summary": "6-10 sentences of honest analysis. No fabricated stats. Use structural reasoning and odds analysis.",
-  "pros": ["3-5 real reasons with 1-3 sentences each, no fake numbers"],
-  "cons": ["3-4 real risks, no generic filler"],
+  "confidence": number (0-100, honest),
+  "summary": "6-10 sentences. For crypto/weather: start with real data. Consider both sides. Explain why one side has the edge.",
+  "pros": ["2-4 data-backed reasons"],
+  "cons": ["2-3 real risks"],
   "risk_level": "LOW" | "MEDIUM" | "HIGH",
   "target_position": "YES" | "NO",
   "entry_price": number,
