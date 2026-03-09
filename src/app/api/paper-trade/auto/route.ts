@@ -20,11 +20,46 @@ export async function POST(request: Request) {
     const allMarkets = await fetchAllOpenMarkets();
     const ranked = scoreAndRankMarkets(allMarkets);
     const marketByTicker = new Map(allMarkets.map((m) => [m.ticker, m]));
-    const numBatches = Math.min(batchCount || 3, 5);
+    const numBatches = Math.min(batchCount || 5, 8);
+
+    // Build diverse batches: pick markets across different categories
+    // so we don't end up with all crypto or all politics
+    const byCategory: Record<string, typeof ranked> = {};
+    for (const m of ranked) {
+      const cat = m.category || "Other";
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push(m);
+    }
+
+    // Round-robin across categories to build diverse market list
+    const diverseList: typeof ranked = [];
+    const categories = Object.keys(byCategory).sort(
+      (a, b) => byCategory[b].length - byCategory[a].length
+    );
+    const catIndexes: Record<string, number> = {};
+    categories.forEach((c) => (catIndexes[c] = 0));
+
+    const targetCount = numBatches * 10;
+    let added = true;
+    while (diverseList.length < targetCount && added) {
+      added = false;
+      for (const cat of categories) {
+        if (diverseList.length >= targetCount) break;
+        const idx = catIndexes[cat];
+        if (idx < byCategory[cat].length) {
+          const m = byCategory[cat][idx];
+          if (!existingTickers.has(m.ticker)) {
+            diverseList.push(m);
+          }
+          catIndexes[cat]++;
+          added = true;
+        }
+      }
+    }
 
     const allAnalyses = [];
     for (let i = 0; i < numBatches; i++) {
-      const batch = ranked.slice(i * 10, (i + 1) * 10);
+      const batch = diverseList.slice(i * 10, (i + 1) * 10);
       if (batch.length === 0) break;
       const analyses = await analyzeMarkets(batch);
       allAnalyses.push(...analyses);
