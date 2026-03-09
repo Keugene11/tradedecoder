@@ -74,89 +74,96 @@ export interface TradeAnalysis {
 export async function analyzeMarkets(
   markets: KalshiMarket[]
 ): Promise<TradeAnalysis[]> {
-  const marketSummaries = markets.slice(0, 15).map((m) => ({
-    ticker: m.ticker,
-    title: m.title,
-    category: m.category,
-    event_ticker: m.event_ticker,
-    yes_bid: m.yes_bid_dollars,
-    yes_ask: m.yes_ask_dollars,
-    no_bid: m.no_bid_dollars,
-    no_ask: m.no_ask_dollars,
-    last_price: m.last_price_dollars,
-    volume_24h: m.volume_24h_fp,
-    open_interest: m.open_interest_fp,
-    close_time: m.close_time,
-    implied_probability: m.implied_probability,
-    expected_value: m.expected_value,
-    spread: m.spread,
-    rules: m.rules_primary?.substring(0, 100),
-  }));
+  const now = new Date().toISOString();
+  const marketSummaries = markets.slice(0, 15).map((m) => {
+    const hoursToClose = m.close_time
+      ? (new Date(m.close_time).getTime() - Date.now()) / (1000 * 60 * 60)
+      : null;
+    return {
+      ticker: m.ticker,
+      title: m.title,
+      category: m.category,
+      event_ticker: m.event_ticker,
+      yes_bid: m.yes_bid_dollars,
+      yes_ask: m.yes_ask_dollars,
+      no_bid: m.no_bid_dollars,
+      no_ask: m.no_ask_dollars,
+      last_price: m.last_price_dollars,
+      volume_24h: m.volume_24h_fp,
+      open_interest: m.open_interest_fp,
+      close_time: m.close_time,
+      hours_until_close: hoursToClose ? Math.round(hoursToClose * 10) / 10 : null,
+      implied_probability: m.implied_probability,
+      expected_value: m.expected_value,
+      spread: m.spread,
+      rules: m.rules_primary?.substring(0, 200),
+    };
+  });
 
-  const systemPrompt = `You are an elite prediction market analyst and trader specializing in Kalshi event contracts. You have deep expertise in sports betting, political markets, economic indicators, and weather markets.
+  const systemPrompt = `You are an elite prediction market trader. Your job is to find mispriced bets on Kalshi.
 
-Your ONLY job is to find the BEST bets to make — trades where the potential profit justifies the risk. Do NOT recommend trades to avoid. Every trade you return should be one worth placing.
+HONESTY RULES — READ CAREFULLY:
+1. You do NOT have access to live data, real-time scores, current rosters, injury reports, or live prices beyond what is provided in the market data. DO NOT fabricate specific statistics like "averaging 58.3 points" or "28-14 at home" — you are making those numbers up and the user will notice.
+2. Instead of fake stats, base your analysis on:
+   - STRUCTURAL REASONING: What factors logically favor one outcome? (home court, rest days, team quality tier, matchup dynamics)
+   - MARKET STRUCTURE: Is the price in a range where edges tend to exist? Is the spread tight or wide? Is volume high (consensus) or low (potential mispricing)?
+   - CATEGORY KNOWLEDGE: General knowledge about teams, players, leagues, economic indicators — things you actually know. State what you know vs. what you're uncertain about.
+   - ODDS ANALYSIS: Is the risk/reward mathematically attractive? What does the price imply and does that feel right?
+3. If you're uncertain, say so. "The market prices this at 53% which seems roughly fair" is infinitely better than fabricating stats to justify a position.
+4. Be CONCISE and SHARP. No filler sentences like "Market volatility could impact pricing" or "Unexpected injuries could change dynamics." Every sentence should add real information.
 
-CRITICAL RULE: NEVER recommend bets where you pay $0.85+ to win $0.15 or less. Those are terrible risk/reward. The best bets are where the market is MISPRICED — where you can buy at $0.30-$0.70 and the true probability is significantly higher than the price implies. Look for 20%+ potential returns, not 1-5% returns on near-certainties.
+PRICING RULES:
+- NEVER recommend bets priced above $0.85. Those are terrible risk/reward.
+- Best bets: $0.25-$0.65 range where you see genuine mispricing.
+- The entry_price MUST match the yes_ask (to buy YES) or no_ask (to buy NO) from the market data provided. Do NOT invent prices.
 
-CRITICAL RULE — TIME HORIZON: Every market has a close_time. Your analysis MUST be calibrated to this timeframe.
-- If a market resolves in <24 hours: Focus ONLY on immediate factors — today's matchup, current conditions, short-term catalysts, intraday price action, today's schedule/lineup. Long-term trends and historical macro context are IRRELEVANT for same-day resolution.
-- If a market resolves in 1-7 days: Focus on near-term catalysts, upcoming events, short-term momentum, scheduled data releases.
-- If a market resolves in 1-4 weeks: Consider medium-term trends but stay grounded in what can realistically change in that window.
-- If a market resolves in 1+ months: Broader analysis is appropriate, but still anchor to specific upcoming catalysts.
-NEVER give a long-term macro thesis for a bet that resolves tomorrow. A bet on "Will ETH exceed $X by tomorrow" should discuss current price, 24h momentum, order book depth, and immediate catalysts — NOT Ethereum 2.0 history or DeFi growth over years.
+TIME HORIZON — check hours_until_close for each market:
+- <6 hours: Only immediate factors matter. Who's playing RIGHT NOW? Current conditions only.
+- 6-24 hours: Today's event. Focus on the specific matchup, today's conditions, known lineups.
+- 1-7 days: Near-term. What specific events/catalysts are coming?
+- 7+ days: Broader analysis is fine, but anchor to specific upcoming events.
 
-For each market, perform deep analysis considering:
-1. Whether the implied probability (from price) is mispriced relative to the true probability based on your knowledge
-2. Historical patterns and base rates for similar events
-3. Liquidity and volume — higher volume means more market consensus and easier entry/exit
-4. Time to expiration and how information flow may shift the price before settlement — MATCH YOUR ANALYSIS DEPTH TO THIS TIMEFRAME
-5. Current events, recent news, trends, and any edge from public information
-6. Spread costs and their real impact on profitability
-7. Correlation between markets and hedging opportunities
-8. Market sentiment vs statistical reality
+Current time: ${now}
 
-You MUST respond with valid JSON only. No markdown, no code blocks, just raw JSON.`;
+You MUST respond with valid JSON only. No markdown, no code blocks.`;
 
-  const userPrompt = `Analyze these Kalshi prediction markets and find the BEST bets to place right now. Only return trades you would actually recommend placing money on — either STRONG_BUY or BUY. Do NOT include any HOLD or AVOID recommendations.
+  const userPrompt = `Analyze these markets. Return ONLY bets worth placing (STRONG_BUY or BUY). Skip markets where you don't see a real edge — returning 2-3 great picks is better than 5 mediocre ones.
 
-For each bet, provide an EXTREMELY thorough and detailed analysis. This is the most important part — users read these analyses to understand why a trade is worth making. Each analysis must be at minimum 200 words, ideally 300+. Pack it with specific numbers, statistics, win/loss records, historical data, percentages, season averages, head-to-head matchups, recent form, and concrete reasoning. Do NOT be vague or generic — every claim must be backed by a specific data point or logical argument.
-
-Markets data:
+Markets:
 ${JSON.stringify(marketSummaries, null, 2)}
 
-Respond with a JSON array of analyses. Each object must have exactly these fields:
+For each bet, return this JSON structure:
 {
-  "ticker": "string - market ticker",
-  "title": "string - a clear, human-readable title for the bet (not the raw ticker). e.g. 'Boston Celtics vs Cleveland Cavaliers' or 'Will CPI exceed 3.5%?'",
+  "ticker": "from market data",
+  "title": "clean human-readable title, e.g. 'Pacers vs Kings' or 'Will gas exceed $4.40?'",
   "recommendation": "STRONG_BUY" | "BUY",
-  "confidence": number (0-100),
-  "category": "string - the sport or category, e.g. 'NBA Basketball', 'NHL Hockey', 'Economics', 'Politics', 'Weather', 'NCAA Basketball', 'UFC / MMA', etc.",
-  "event_description": "string - 2-3 sentences explaining WHAT this event is. Who is playing? What game/event is it? When does it happen? Give full context so someone unfamiliar knows exactly what this is about.",
-  "the_bet": "string - 1-2 sentences in plain English explaining exactly what you're betting on. e.g. 'You are betting that the Boston Celtics will beat the Cleveland Cavaliers tonight.' or 'You are betting that Seth Jarvis will score at least 1 goal in tonight's Hurricanes vs Flames game.'",
-  "how_you_profit": "string - 2-3 sentences explaining exactly how you make money. e.g. 'You buy YES at $0.85. If the Celtics win, you get $1.00 back — a profit of $0.15 per contract (17.6% return). If they lose, you lose your $0.85.'",
-  "summary": "string - THIS IS THE MAIN ANALYSIS. Write a minimum of 200 words (ideally 300+). IMPORTANT: Match your analysis to the resolution timeframe (check close_time). For same-day bets, focus on TODAY's factors — current lineups, injuries, recent form, immediate catalysts, current price/conditions. Do NOT write long-term macro essays for short-term bets. Structure it as: (1) Set the scene — what's happening TODAY and why it matters. (2) Present 3-5 specific statistical arguments with real numbers relevant to the TIMEFRAME — for sports: recent form, matchup stats, today's conditions; for crypto/economics: current price, 24h movement, immediate catalysts. (3) Explain exactly why the market price is wrong RIGHT NOW. (4) Conclude with conviction and risk/reward. Be specific and data-driven. NO generic filler.",
+  "confidence": 55-85 (be honest — 85+ means you're extremely sure, don't inflate),
+  "category": "NBA Basketball" | "NHL Hockey" | "Tennis" | "Soccer" | "Esports" | "Economics" | "Politics" | etc.,
+  "event_description": "2-3 sentences. What is this event? Who's involved? When does it happen?",
+  "the_bet": "1-2 plain English sentences. 'You're betting that X will beat Y tonight.' Be specific.",
+  "how_you_profit": "Exact math. 'Buy YES at $0.53. If they win, you get $1.00 — profit of $0.47 per contract (88.7% return). If they lose, you lose $0.53.'",
+  "summary": "THIS IS THE KEY FIELD. Write 150-250 words of HONEST analysis. Structure: (1) What's the matchup/event and why it matters. (2) 2-4 REAL arguments for your position — use structural reasoning, general knowledge, and odds analysis. DO NOT make up specific statistics you don't actually know. Instead say things like 'Team X is generally the stronger squad this season' or 'At this price point, the market is implying only a 45% chance which seems too low for a home favorite.' (3) Why is the market wrong? What structural factor is it underweighting? (4) What's the honest risk? Every sentence should earn its place — no filler.",
   "math_breakdown": {
-    "implied_prob_pct": "number - the market's implied probability from the price (entry_price * 100)",
-    "estimated_true_prob_pct": "number - YOUR estimate of the actual probability this bet wins, based on stats and analysis",
-    "edge_pct": "number - estimated_true_prob_pct minus implied_prob_pct. This is your edge.",
-    "cost_per_contract": "number - what you pay (same as entry_price)",
+    "implied_prob_pct": "entry_price * 100",
+    "estimated_true_prob_pct": "your honest estimate (don't inflate to justify the bet)",
+    "edge_pct": "estimated minus implied",
+    "cost_per_contract": "entry_price",
     "payout_if_win": 1.00,
-    "profit_if_win": "number - 1.00 minus cost_per_contract",
-    "loss_if_lose": "number - cost_per_contract (what you lose)",
-    "expected_value_per_dollar": "number - (estimated_true_prob * payout - cost) / cost. Positive = profitable bet.",
-    "break_even_prob_pct": "number - the minimum win probability needed to break even (= cost * 100)",
-    "kelly_fraction_pct": "number - Kelly Criterion optimal bet size as % of bankroll: (edge / odds). If edge is 10% and odds are 1:1, kelly = 10%."
+    "profit_if_win": "1.00 - entry_price",
+    "loss_if_lose": "entry_price",
+    "expected_value_per_dollar": "(est_prob * 1.00 - cost) / cost",
+    "break_even_prob_pct": "entry_price * 100",
+    "kelly_fraction_pct": "keep between 1-15%. If you're calculating >15%, cap it. We use quarter-Kelly anyway."
   },
-  "pros": ["array of 5+ strings - each MUST be 2-4 sentences citing specific stats, records, percentages, or historical data. e.g. 'Miami is 28-14 at home this season with a +7.2 point differential, while Detroit is 8-24 on the road with a -9.1 differential. That 16.3-point swing in home/away performance creates a massive edge that the current 46-cent price dramatically undervalues.'"],
-  "cons": ["array of 4+ strings - each MUST be 2-4 sentences citing specific risks with numbers. e.g. 'Detroit has covered this spread in 3 of their last 5 road games, and Cade Cunningham is averaging 28.4 PPG over that stretch. They also beat Miami 108-102 in their last meeting on Feb 12, showing they can compete in this matchup.'"],
+  "pros": ["3-5 strings. Each 1-3 sentences of REAL reasoning. No fabricated stats. Good example: 'Home court advantage is significant in this matchup — the home team in this series has won the last several meetings, and crowd energy in close games tends to favor the home side.' Bad example: 'Team X is 28-14 at home with a +7.2 point differential' (you made that up)."],
+  "cons": ["3-4 strings. Real risks, not generic filler. Good: 'This team has been inconsistent on the road and could be fatigued from a back-to-back.' Bad: 'Market volatility could affect pricing.'"],
   "risk_level": "LOW" | "MEDIUM" | "HIGH",
   "target_position": "YES" | "NO",
-  "entry_price": number (dollar price to enter),
-  "potential_return_pct": number (expected return percentage)
+  "entry_price": "MUST match yes_ask or no_ask from market data",
+  "potential_return_pct": "(1.00 - entry_price) / entry_price * 100 for YES bets"
 }
 
-Return exactly 5 of the best bets, sorted by conviction level. Every single one should be a trade worth making. DO NOT cut corners on analysis length — each trade's summary MUST be 200+ words with specific statistics and numbers. The user is reading these to make decisions, so quality and depth matter more than brevity.`;
+Return a JSON array. Quality over quantity — 3-5 genuinely good picks.`;
 
   const response = await chatCompletion([
     { role: "system", content: systemPrompt },
@@ -164,7 +171,6 @@ Return exactly 5 of the best bets, sorted by conviction level. Every single one 
   ]);
 
   try {
-    // Try to parse the response, handling potential markdown wrapping
     let cleaned = response.trim();
     if (cleaned.startsWith("```")) {
       cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
@@ -179,9 +185,24 @@ Return exactly 5 of the best bets, sorted by conviction level. Every single one 
 export async function analyzeSpecificMarket(
   market: KalshiMarket
 ): Promise<TradeAnalysis | null> {
-  const systemPrompt = `You are an elite prediction market analyst. Provide a deeply detailed analysis of this specific Kalshi market. Focus on whether this is a bet worth making. CRITICAL: Match your analysis to the resolution timeframe — if the market closes within 24 hours, focus ONLY on immediate short-term factors (current price, today's conditions, intraday catalysts), NOT long-term macro narratives. You MUST respond with valid JSON only.`;
+  const now = new Date().toISOString();
+  const hoursToClose = market.close_time
+    ? (new Date(market.close_time).getTime() - Date.now()) / (1000 * 60 * 60)
+    : null;
 
-  const userPrompt = `Give a deeply detailed analysis of this Kalshi market. If it's worth betting on, recommend STRONG_BUY or BUY. Only use HOLD if you're truly unsure.
+  const systemPrompt = `You are an elite prediction market analyst. Analyze this Kalshi market honestly.
+
+HONESTY RULES:
+- Do NOT fabricate statistics, records, or numbers you don't actually know. No fake "averaging 58.3 points" or "28-14 record."
+- Use structural reasoning, general knowledge, odds analysis, and market structure instead.
+- If uncertain, say so. Honest uncertainty is more valuable than confident bullshit.
+- Match analysis depth to the resolution timeframe (${hoursToClose ? Math.round(hoursToClose) + ' hours' : 'unknown'} until close).
+- Be concise. No filler sentences.
+
+Current time: ${now}
+You MUST respond with valid JSON only.`;
+
+  const userPrompt = `Analyze this market. Recommend STRONG_BUY, BUY, or HOLD.
 
 Ticker: ${market.ticker}
 Title: ${market.title}
@@ -190,18 +211,18 @@ NO bid/ask: $${market.no_bid_dollars} / $${market.no_ask_dollars}
 Last price: $${market.last_price_dollars}
 24h Volume: ${market.volume_24h_fp}
 Open Interest: ${market.open_interest_fp}
-Closes: ${market.close_time}
+Closes: ${market.close_time} (${hoursToClose ? Math.round(hoursToClose) + 'h from now' : 'unknown'})
 Rules: ${market.rules_primary}
 
-Respond with a single JSON object (not an array) with these fields:
+Return a single JSON object:
 {
   "ticker": "${market.ticker}",
   "title": "${market.title}",
   "recommendation": "STRONG_BUY" | "BUY" | "HOLD",
-  "confidence": number (0-100),
-  "summary": "detailed 6-10 sentence analysis with specific reasoning, historical context, current events, and why the market is mispriced",
-  "pros": ["5+ detailed reasons (2-3 sentences each) this trade could be profitable with specific evidence and reasoning"],
-  "cons": ["4+ detailed risks (2-3 sentences each) with specific scenarios that could cause losses"],
+  "confidence": number (0-100, be honest),
+  "summary": "6-10 sentences of honest analysis. No fabricated stats. Use structural reasoning and odds analysis.",
+  "pros": ["3-5 real reasons with 1-3 sentences each, no fake numbers"],
+  "cons": ["3-4 real risks, no generic filler"],
   "risk_level": "LOW" | "MEDIUM" | "HIGH",
   "target_position": "YES" | "NO",
   "entry_price": number,
