@@ -11,15 +11,16 @@
 const ODDS_API_BASE = "https://api.the-odds-api.com/v4";
 
 // Map Kalshi categories to The Odds API sport keys
-const SPORT_KEY_MAP: Record<string, string> = {
-  "NBA Basketball": "basketball_nba",
-  "NHL Hockey": "icehockey_nhl",
-  "NCAA Men's Basketball": "basketball_ncaab",
-  "NFL Football": "americanfootball_nfl",
-  "MLB Baseball": "baseball_mlb",
-  "UFC / MMA": "mma_mixed_martial_arts",
-  "Tennis": "tennis_atp_french_open", // varies by tournament
-  "Soccer": "soccer_usa_mls",
+const SPORT_KEY_MAP: Record<string, string[]> = {
+  "NBA Basketball": ["basketball_nba"],
+  "NHL Hockey": ["icehockey_nhl"],
+  "NCAA Men's Basketball": ["basketball_ncaab"],
+  "NCAA Women's Basketball": ["basketball_wnba"],
+  "NFL Football": ["americanfootball_nfl"],
+  "MLB Baseball": ["baseball_mlb"],
+  "UFC / MMA": ["mma_mixed_martial_arts"],
+  "Tennis": ["tennis_atp_aus_open", "tennis_wta_aus_open"],
+  "Soccer": ["soccer_usa_mls"],
 };
 
 // Map Kalshi team codes to common team names for matching
@@ -258,8 +259,8 @@ export async function compareOdds(
   // Determine which sports we need odds for
   const sportsNeeded = new Set<string>();
   for (const m of markets) {
-    const sportKey = SPORT_KEY_MAP[m.category];
-    if (sportKey) sportsNeeded.add(sportKey);
+    const sportKeys = SPORT_KEY_MAP[m.category];
+    if (sportKeys) sportKeys.forEach((k) => sportsNeeded.add(k));
   }
 
   if (sportsNeeded.size === 0) return [];
@@ -272,19 +273,22 @@ export async function compareOdds(
     }))
   );
 
-  const oddsBySport = new Map<string, SportsbookOdds[]>();
-  for (const r of oddsResults) {
-    oddsBySport.set(r.sport, r.odds);
+  // Merge all odds into one flat list per category
+  const oddsByCategory = new Map<string, SportsbookOdds[]>();
+  for (const [category, keys] of Object.entries(SPORT_KEY_MAP)) {
+    const allOdds: SportsbookOdds[] = [];
+    for (const key of keys) {
+      const result = oddsResults.find((r) => r.sport === key);
+      if (result) allOdds.push(...result.odds);
+    }
+    if (allOdds.length > 0) oddsByCategory.set(category, allOdds);
   }
 
   // Compare each Kalshi market against sportsbook odds
   const comparisons: OddsComparison[] = [];
 
   for (const market of markets) {
-    const sportKey = SPORT_KEY_MAP[market.category];
-    if (!sportKey) continue;
-
-    const sportOdds = oddsBySport.get(sportKey);
+    const sportOdds = oddsByCategory.get(market.category);
     if (!sportOdds || sportOdds.length === 0) continue;
 
     const match = matchKalshiToSportsbook(market.ticker, market.title, sportOdds);
