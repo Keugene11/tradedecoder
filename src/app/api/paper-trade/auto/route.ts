@@ -5,6 +5,14 @@ import { fetchAllOpenMarkets, scoreAndRankMarkets } from "@/lib/kalshi";
 
 export const maxDuration = 300;
 
+// Max cost for any single trade as fraction of starting capital
+const MAX_POSITION_PCT = 0.03; // 3% of $10k = $300
+const MAX_POSITION_DOLLARS = 300;
+// Max total exposure per category
+const MAX_CATEGORY_EXPOSURE = 600; // $600 per category
+// Max entry price (reject low-return bets)
+const MAX_ENTRY_PRICE = 0.70; // Don't pay >70c to win <30c
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -13,17 +21,33 @@ export async function POST(request: Request) {
     const store = await readStore();
     const maxBudget = budget || Math.min(store.balance * 0.5, 5000);
 
-    const existingTickers = new Set(
-      store.trades.filter((t) => t.status === "open").map((t) => t.ticker)
-    );
+    // Track existing positions to prevent conflicts
+    const openTrades = store.trades.filter((t) => t.status === "open");
+    const existingTickers = new Set(openTrades.map((t) => t.ticker));
+
+    // Track existing event_tickers to prevent both-sides bets
+    const existingEventTickers = new Set<string>();
+    for (const t of openTrades) {
+      // Extract event ticker from market ticker (e.g. KXDOTA2GAME-26MAR09PARILIQUID-PARI -> KXDOTA2GAME-26MAR09PARILIQUID)
+      const parts = t.ticker.split("-");
+      if (parts.length >= 2) {
+        existingEventTickers.add(parts.slice(0, -1).join("-"));
+      }
+    }
+
+    // Track category exposure
+    const categoryExposure: Record<string, number> = {};
+    for (const t of openTrades) {
+      const cat = t.category || "Other";
+      categoryExposure[cat] = (categoryExposure[cat] || 0) + t.cost;
+    }
 
     const allMarkets = await fetchAllOpenMarkets();
     const ranked = scoreAndRankMarkets(allMarkets);
     const marketByTicker = new Map(allMarkets.map((m) => [m.ticker, m]));
     const numBatches = Math.min(batchCount || 5, 8);
 
-    // Build diverse batches: pick markets across different categories
-    // so we don't end up with all crypto or all politics
+    // Build diverse batches: round-robin across categories
     const byCategory: Record<string, typeof ranked> = {};
     for (const m of ranked) {
       const cat = m.category || "Other";
@@ -31,7 +55,6 @@ export async function POST(request: Request) {
       byCategory[cat].push(m);
     }
 
-    // Round-robin across categories to build diverse market list
     const diverseList: typeof ranked = [];
     const categories = Object.keys(byCategory).sort(
       (a, b) => byCategory[b].length - byCategory[a].length
@@ -49,7 +72,11 @@ export async function POST(request: Request) {
         if (idx < byCategory[cat].length) {
           const m = byCategory[cat][idx];
           if (!existingTickers.has(m.ticker)) {
-            diverseList.push(m);
+            // Skip if we already have a bet on this event
+            const eventBase = m.ticker.split("-").slice(0, -1).join("-");
+            if (!existingEventTickers.has(eventBase)) {
+              diverseList.push(m);
+            }
           }
           catIndexes[cat]++;
           added = true;
@@ -69,6 +96,7 @@ export async function POST(request: Request) {
       (a) =>
         (a.recommendation === "STRONG_BUY" || a.recommendation === "BUY") &&
         a.confidence >= 55 &&
+        a.entry_price <= MAX_ENTRY_PRICE &&
         !existingTickers.has(a.ticker)
     );
 
@@ -82,14 +110,42 @@ export async function POST(request: Request) {
 
     let remainingBudget = Math.min(maxBudget, store.balance);
     const placedTrades = [];
+    // Track event tickers placed this session to prevent contradicting bets
+    const sessionEventTickers = new Set<string>();
 
     for (const bet of bets) {
       if (remainingBudget < 1) break;
 
-      const kellyFraction = (bet.math_breakdown?.kelly_fraction_pct || 5) / 100;
+      // Check: don't bet both sides of the same event
+      const betEventBase = bet.ticker.split("-").slice(0, -1).join("-");
+      if (existingEventTickers.has(betEventBase) || sessionEventTickers.has(betEventBase)) {
+        continue;
+      }
+
+      // Check: category exposure cap
+      const betCat = bet.category || "Other";
+      const currentCatExposure = categoryExposure[betCat] || 0;
+      if (currentCatExposure >= MAX_CATEGORY_EXPOSURE) {
+        continue;
+      }
+
+      // Position sizing with caps
+      const kellyFraction = Math.min(
+        (bet.math_breakdown?.kelly_fraction_pct || 5) / 100,
+        0.15 // Cap Kelly at 15%
+      );
+      const kellySize = Math.floor(remainingBudget * kellyFraction * 0.25); // quarter-Kelly
+      const maxByPosition = Math.floor(MAX_POSITION_DOLLARS / bet.entry_price);
+      const maxByBudget = Math.floor(remainingBudget / bet.entry_price);
+      const maxByCatRoom = Math.floor(
+        (MAX_CATEGORY_EXPOSURE - currentCatExposure) / bet.entry_price
+      );
+
       const positionSize = Math.min(
-        Math.max(Math.floor(remainingBudget * kellyFraction * 0.5), 2),
-        Math.floor(remainingBudget / bet.entry_price)
+        Math.max(kellySize, 2),
+        maxByPosition,
+        maxByBudget,
+        maxByCatRoom
       );
 
       if (positionSize <= 0) continue;
@@ -125,6 +181,9 @@ export async function POST(request: Request) {
 
       placedTrades.push(trade);
       remainingBudget -= cost;
+      categoryExposure[betCat] = (categoryExposure[betCat] || 0) + cost;
+      sessionEventTickers.add(betEventBase);
+      existingEventTickers.add(betEventBase);
     }
 
     const totalCost = placedTrades.reduce((sum, t) => sum + t.cost, 0);
