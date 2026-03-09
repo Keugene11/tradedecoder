@@ -1,36 +1,101 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TradeDecoder
 
-## Getting Started
+AI-powered paper trading on [Kalshi](https://kalshi.com) prediction markets. Analyzes thousands of live markets across sports, crypto, politics, economics, and more — then places bets where the AI finds mispriced odds.
 
-First, run the development server:
+**Live:** [tradedecoder.vercel.app](https://tradedecoder.vercel.app)
+
+## What It Does
+
+- Fetches all open Kalshi markets in real-time (sports, crypto, politics, weather, esports, economics)
+- AI analyzes each market for mispriced odds using structural reasoning and market analysis
+- Auto-places paper trades using quarter-Kelly position sizing
+- Tracks portfolio performance with P&L charts and trade history
+- Settles trades based on actual market resolution
+
+## Stack
+
+- **Framework:** Next.js 16 (App Router) + TypeScript
+- **Styling:** Tailwind CSS 4 — clean minimal UI inspired by Robinhood/Cal.ai
+- **AI:** Dedalus API (OpenAI-compatible) for trade analysis
+- **Storage:** Upstash Redis for paper trade state
+- **Deployment:** Vercel
+
+## API Routes
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/api/markets` | GET | Fetch & rank all open Kalshi markets |
+| `/api/analyze` | POST | AI analysis on a batch of markets |
+| `/api/analyze/[ticker]` | GET | AI analysis on a specific market |
+| `/api/paper-trade` | GET | Get all trades + portfolio stats |
+| `/api/paper-trade/auto` | POST | AI auto-trade: analyze markets & place bets |
+| `/api/paper-trade/settle` | POST | Settle open trades based on market resolution |
+| `/api/paper-trade/reanalyze` | POST | Re-run AI analysis on all open trades |
+| `/api/paper-trade/reset` | POST | Delete all trades, reset balance to $10,000 |
+
+## How Auto-Trade Works
+
+1. Fetches all open markets from Kalshi API
+2. Ranks by a composite score (time urgency, uncertainty, volume, spread)
+3. Diversifies selection round-robin across categories (NBA, NHL, crypto, politics, etc.)
+4. AI analyzes batches of 10 markets, returns STRONG_BUY/BUY recommendations
+5. Places bets using quarter-Kelly criterion for position sizing
+6. Skips markets already in the portfolio
+
+## AI Analysis
+
+The AI uses honest structural reasoning rather than fabricating statistics:
+
+- **Market structure:** Is the price in a range where edges exist? Spread tight or wide?
+- **Structural reasoning:** Home court, matchup dynamics, team quality tiers
+- **Odds analysis:** Does the implied probability feel right for this event?
+- **Time calibration:** Same-day bets get short-term analysis, not macro essays
+
+## Settlement Rules
+
+- Sells at >= 90c (win) or <= 10c (loss)
+- Take profit at >= 30% gain
+- Stop loss at >= 40% loss
+- Expired markets: lose 50% of cost
+
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Create `.env.local`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+DEDALUS_API_KEY=your_key
+UPSTASH_REDIS_REST_URL=your_url
+UPSTASH_REDIS_REST_TOKEN=your_token
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+pnpm dev
+```
 
-## Learn More
+## Project Structure
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+/src
+  /app
+    /api          — API routes (markets, analyze, paper-trade)
+    layout.tsx    — Root layout (Inter font, dark theme tokens)
+    page.tsx      — Home page
+    globals.css   — Design system (color tokens, typography)
+  /components
+    PaperTrading  — Main dashboard with stats, controls, trade list
+    PnlChart      — Portfolio performance area chart (recharts)
+    TradeRow       — Expandable trade row with AI reasoning
+    TradeCard      — Full trade recommendation card
+    MarketTable    — Raw market data table
+    AnalysisDashboard — Full analysis interface with tabs
+  /lib
+    kalshi.ts     — Kalshi API client (public, no auth)
+    dedalus.ts    — AI analysis via Dedalus API
+    store.ts      — Upstash Redis paper trade storage
+  /types
+    index.ts      — TypeScript interfaces
+```
