@@ -66,6 +66,11 @@ export interface PaperTrade {
   close_time: string | null;
   created_at: string;
   settled_at: string | null;
+  // Quantitative fields
+  closing_price?: number | null;     // Price at resolution (for CLV tracking)
+  peak_price?: number | null;        // Highest favorable price seen (for trailing stops)
+  sportsbook_prob?: number | null;   // Fair prob from sportsbooks at entry time
+  edge_source?: string | null;       // "sportsbook" | "crypto_data" | "weather_data" | "ai_only"
 }
 
 export interface PortfolioStats {

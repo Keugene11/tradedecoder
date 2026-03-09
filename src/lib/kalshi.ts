@@ -58,6 +58,11 @@ export interface KalshiMarket {
   close_time: string;
   rules_primary: string;
   category: string;
+  // Previous session prices (line movement detection)
+  prev_yes_bid: number;
+  prev_yes_ask: number;
+  prev_price: number;
+  price_change: number; // current - previous (positive = moved up)
   // computed
   implied_probability?: number;
   expected_value?: number;
@@ -109,6 +114,9 @@ function parseMarket(raw: KalshiMarketRaw): KalshiMarket {
   // MVE combo markets
   else if (et.includes("KXMVE")) category = "Cross-Category";
 
+  const currentPrice = parseFloat(raw.last_price_dollars) || 0;
+  const prevPrice = parseFloat(raw.previous_price_dollars) || 0;
+
   return {
     ticker: raw.ticker,
     event_ticker: raw.event_ticker,
@@ -121,12 +129,17 @@ function parseMarket(raw: KalshiMarketRaw): KalshiMarket {
     yes_ask_dollars: parseFloat(raw.yes_ask_dollars) || 0,
     no_bid_dollars: parseFloat(raw.no_bid_dollars) || 0,
     no_ask_dollars: parseFloat(raw.no_ask_dollars) || 0,
-    last_price_dollars: parseFloat(raw.last_price_dollars) || 0,
+    last_price_dollars: currentPrice,
     volume_24h_fp: parseFloat(raw.volume_24h_fp) || 0,
     open_interest_fp: parseFloat(raw.open_interest_fp) || 0,
     close_time: raw.close_time,
     rules_primary: raw.rules_primary,
     category,
+    // Line movement data
+    prev_yes_bid: parseFloat(raw.previous_yes_bid_dollars) || 0,
+    prev_yes_ask: parseFloat(raw.previous_yes_ask_dollars) || 0,
+    prev_price: prevPrice,
+    price_change: prevPrice > 0 ? currentPrice - prevPrice : 0,
   };
 }
 

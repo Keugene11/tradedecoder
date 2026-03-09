@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readStore, updateTrade, writeStore } from "@/lib/store";
 import { fetchMarkets, fetchMarketByTicker } from "@/lib/kalshi";
+import { recordCalibration } from "@/lib/calibration";
 
 export const maxDuration = 60;
 
@@ -38,11 +39,12 @@ export async function POST() {
             // Win: each contract pays $1
             const payout = 1.0 * trade.quantity;
             const pnl = payout - trade.cost;
+            const settledAt = new Date().toISOString();
             await updateTrade(trade.id, {
               status: "settled_win",
               settled_price: 1.0,
               pnl,
-              settled_at: new Date().toISOString(),
+              settled_at: settledAt,
             });
             totalBalanceReturn += payout;
             actions.push({
@@ -51,14 +53,16 @@ export async function POST() {
               pnl,
               reason: `Market resolved ${resolved.result.toUpperCase()} — won $${payout.toFixed(2)} (+$${pnl.toFixed(2)} profit)`,
             });
+            await recordCalibration({ ...trade, status: "settled_win", settled_price: 1.0, pnl, settled_at: settledAt });
           } else {
             // Loss: contracts worth $0
             const pnl = -trade.cost;
+            const settledAt = new Date().toISOString();
             await updateTrade(trade.id, {
               status: "settled_loss",
               settled_price: 0,
               pnl,
-              settled_at: new Date().toISOString(),
+              settled_at: settledAt,
             });
             // No balance return — contracts are worthless
             actions.push({
@@ -67,6 +71,7 @@ export async function POST() {
               pnl,
               reason: `Market resolved ${resolved.result.toUpperCase()} — lost $${trade.cost.toFixed(2)}`,
             });
+            await recordCalibration({ ...trade, status: "settled_loss", settled_price: 0, pnl, settled_at: settledAt });
           }
         } else if (trade.close_time && new Date(trade.close_time) < new Date()) {
           // Market not found and past close time — treat as expired
@@ -97,11 +102,12 @@ export async function POST() {
 
       if (currentBid >= 0.9) {
         const pnl = sellValue - trade.cost;
+        const settledAt = new Date().toISOString();
         await updateTrade(trade.id, {
           status: "settled_win",
           settled_price: currentBid,
           pnl,
-          settled_at: new Date().toISOString(),
+          settled_at: settledAt,
         });
         totalBalanceReturn += sellValue;
         actions.push({
@@ -110,16 +116,18 @@ export async function POST() {
           pnl,
           reason: `Price hit $${currentBid.toFixed(2)} — locked in ${returnPct.toFixed(0)}% profit`,
         });
+        await recordCalibration({ ...trade, status: "settled_win", settled_price: currentBid, pnl, settled_at: settledAt, closing_price: currentBid });
         continue;
       }
 
       if (currentBid <= 0.1) {
         const pnl = sellValue - trade.cost;
+        const settledAt = new Date().toISOString();
         await updateTrade(trade.id, {
           status: "settled_loss",
           settled_price: currentBid,
           pnl,
-          settled_at: new Date().toISOString(),
+          settled_at: settledAt,
         });
         totalBalanceReturn += sellValue;
         actions.push({
@@ -128,16 +136,18 @@ export async function POST() {
           pnl,
           reason: `Price dropped to $${currentBid.toFixed(2)} — cut losses`,
         });
+        await recordCalibration({ ...trade, status: "settled_loss", settled_price: currentBid, pnl, settled_at: settledAt, closing_price: currentBid });
         continue;
       }
 
       if (returnPct >= 30) {
         const pnl = sellValue - trade.cost;
+        const settledAt = new Date().toISOString();
         await updateTrade(trade.id, {
           status: "settled_win",
           settled_price: currentBid,
           pnl,
-          settled_at: new Date().toISOString(),
+          settled_at: settledAt,
         });
         totalBalanceReturn += sellValue;
         actions.push({
@@ -146,16 +156,18 @@ export async function POST() {
           pnl,
           reason: `Up ${returnPct.toFixed(0)}% — taking profit at $${currentBid.toFixed(2)}`,
         });
+        await recordCalibration({ ...trade, status: "settled_win", settled_price: currentBid, pnl, settled_at: settledAt, closing_price: currentBid });
         continue;
       }
 
       if (returnPct <= -40) {
         const pnl = sellValue - trade.cost;
+        const settledAt = new Date().toISOString();
         await updateTrade(trade.id, {
           status: "settled_loss",
           settled_price: currentBid,
           pnl,
-          settled_at: new Date().toISOString(),
+          settled_at: settledAt,
         });
         totalBalanceReturn += sellValue;
         actions.push({
@@ -164,6 +176,7 @@ export async function POST() {
           pnl,
           reason: `Down ${returnPct.toFixed(0)}% — stopping loss at $${currentBid.toFixed(2)}`,
         });
+        await recordCalibration({ ...trade, status: "settled_loss", settled_price: currentBid, pnl, settled_at: settledAt, closing_price: currentBid });
         continue;
       }
     }
